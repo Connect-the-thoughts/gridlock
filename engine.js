@@ -106,6 +106,115 @@
     return s / 3600;                                     // vehicle-hours
   }
 
+  /* ── node penalties (seconds, paid on entering the node) ── */
+  var PEN = { signal: 8, stop: 4, roundabout: 3, none: 0 };
+  var RB_CAP_PER_LEG = 1200;
+  function nodePenaltySeconds(control, legs, mult, vol) {
+    var base = (PEN[control] || 0) * legs * mult;
+    if (control === 'roundabout') {
+      var cap = RB_CAP_PER_LEG * Math.max(1, legs - 1), r = vol / cap, r4 = r * r * r * r;
+      return base * (1 + BPR_ALPHA * r4);
+    }
+    return base;
+  }
+
+  /* ── mode choice: binary logit per OD pair, once per plan ── */
+  var TRANSIT_TIME_FACTOR = 1.6, FARE_MIN_PER_DOLLAR = 4, LOGIT_SCALE = 0.05, PR_SHARE = 0.3;
+  function modeSplit(city, world) {
+    var g = world.graph, pen = new Float64Array(g.n), Z = city.zones.length, out = [], z, j;
+    var sp = [];
+    for (z = 0; z < Z; z++) sp.push(shortestPaths(g, g.linkT0, pen, city.zones[z].node));
+    for (z = 0; z < Z; z++) {
+      out.push(new Array(Z));
+      for (j = 0; j < Z; j++) {
+        var trips = city.od[z][j] || 0;
+        if (j === z || !(trips > 0)) { out[z][j] = 0; continue; }
+        var carMin = sp[z].dist[city.zones[j].node] / 60;
+        var trMin = TRANSIT_TIME_FACTOR * carMin + world.headwayMin / 2 + world.fare * FARE_MIN_PER_DOLLAR;
+        var shareTr = 1 / (1 + Math.exp(-LOGIT_SCALE * (carMin - trMin)));
+        var prShift = world.prShift[z] || 0;                 // park-and-ride: fixed share moves before the logit
+        out[z][j] = trips * (1 - prShift) * (1 - shareTr);
+      }
+    }
+    return out;
+  }
+
+  /* ── plan → world ── */
+  var MULT_TURNLANE = 0.6, MULT_COORD = 0.8;
+  function applyPlan(city, plan) {
+    var nodes = city.nodes.slice(), links = city.links.map(function (L) { return Object.assign({}, L); });
+    var control = city.nodes.map(function (n) { return n.control; });
+    var nodeMult = new Float64Array(city.nodes.length).fill(1);
+    var prShift = new Float64Array(city.zones.length);
+    var headway = city.transit.baseHeadwayMin, fare = city.transit.baseFare, i, p;
+    for (i = 0; i < plan.length; i++) {
+      p = plan[i];
+      switch (p.action) {
+        case 'lane': links[p.site].capacityVph = links[p.site].capacityVph * (links[p.site].lanes + 1) / links[p.site].lanes; links[p.site].lanes += 1; break;
+        case 'clear': break;                                   // prerequisite only
+        case 'turnlane': nodeMult[p.site] *= MULT_TURNLANE; break;
+        case 'roundabout': control[p.site] = 'roundabout'; break;
+        case 'coordinate': city.sites.corridors.filter(function (c) { return c.id === p.site; })[0].nodes.forEach(function (n) { nodeMult[n] *= MULT_COORD; }); break;
+        case 'newroad': {
+          var pr = city.proposals[p.site], base = nodes.length, k;
+          for (k = 0; k < pr.newNodes.length; k++) nodes.push(Object.assign({ id: base + k, legs: 2, control: 'none' }, pr.newNodes[k]));
+          for (k = 0; k < pr.links.length; k++) {
+            var L = pr.links[k];
+            links.push({ id: links.length, from: L.from < 0 ? base + (-L.from - 1) : L.from, to: L.to < 0 ? base + (-L.to - 1) : L.to,
+              name: pr.name, cls: L.cls, lanes: L.lanes, oneway: !!L.oneway, kmh: L.kmh, lengthM: L.lengthM,
+              capacityVph: capacityFor(L.cls, L.lanes), builtUp: false, xy: L.xy, proposal: p.site });
+          }
+          break;
+        }
+        case 'frequency': headway = headway === 30 ? 15 : 10; break;
+        case 'fare': fare = fare === city.transit.baseFare ? fare / 2 : 0; break;
+        case 'parkride': prShift[p.site] = PR_SHARE; break;
+      }
+    }
+    var wcity = Object.assign({}, city, { nodes: nodes, links: links });
+    var graph = buildGraph(wcity);
+    return { city: wcity, graph: graph, control: control, nodeMult: nodeMult, headwayMin: headway, fare: fare, prShift: prShift };
+  }
+  var CAP = { motorway: 1900, trunk: 1700, primary: 1500, secondary: 1200, tertiary: 900 };
+  function capacityFor(cls, lanes) { return (CAP[cls] || 900) * lanes; }
+
+  function pctOf(delay, baseline) {
+    if (!(baseline > 0)) return 0;
+    var p = 100 * (1 - delay / baseline);
+    return p < 0 ? 0 : p > 100 ? 100 : p;
+  }
+  function rankedValue(pct) { return 1000 - Math.round(pct * 10); }
+
+  function solveWorld(city, world) {
+    var carOD = modeSplit(city, world);
+    var r = assign(world.city, carOD, {
+      graph: world.graph,
+      penaltyOf: function (i, vol) { return nodePenaltySeconds(world.control[i], world.city.nodes[i].legs, world.nodeMult[i], vol); }
+    });
+    return { result: r, delayVehH: delayOf(world.graph, r) };
+  }
+
+  /* THE entry point. Baseline is recomputed (cheap) so pct is self-consistent even if meta drifts;
+     the city checker fences meta.baselineDelayVehH against this same number. */
+  function solve(city, plan) {
+    plan = plan || [];
+    var base = solveWorld(city, applyPlan(city, []));
+    var world = applyPlan(city, plan), s = solveWorld(city, world), r = s.result, g = world.graph;
+    var ratio = new Float64Array(g.arcs.length), worstArc = -1, worstDelay = -1, i;
+    for (i = 0; i < g.arcs.length; i++) {
+      ratio[i] = g.linkCap[i] > 0 ? r.volumes[i] / g.linkCap[i] : 0;
+      var d = r.volumes[i] * (r.times[i] - g.linkT0[i]);
+      if (d > worstDelay) { worstDelay = d; worstArc = i; }
+    }
+    return {
+      pct: pctOf(s.delayVehH, base.delayVehH), delayVehH: s.delayVehH, baselineDelayVehH: base.delayVehH,
+      volumes: r.volumes, times: r.times, arcRatio: ratio,
+      worstArc: worstArc, worstLinkId: worstArc >= 0 ? g.arcs[worstArc].link : -1, world: world
+    };
+  }
+
   return { bpr: bpr, buildGraph: buildGraph, shortestPaths: shortestPaths, assign: assign, delayOf: delayOf,
+           applyPlan: applyPlan, modeSplit: modeSplit, solve: solve, pctOf: pctOf, rankedValue: rankedValue,
+           nodePenaltySeconds: nodePenaltySeconds, capacityFor: capacityFor,
            ITERS: ITERS };
 }));

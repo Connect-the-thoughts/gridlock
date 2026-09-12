@@ -52,3 +52,31 @@ test('assign is deterministic', () => {
   assert.deepEqual(Array.from(a.volumes), Array.from(b.volumes));
   assert.deepEqual(Array.from(a.times), Array.from(b.times));
 });
+
+test('applying then removing every action type restores the baseline exactly', () => {
+  const city = toyCity();
+  city.nodes[1].control = 'signal'; city.nodes[1].legs = 3;
+  city.sites.widenable = [0]; city.sites.turnLane = [1]; city.sites.roundabout = [1];
+  city.sites.corridors = [{ id: 'c1', name: 'Main', nodes: [1] }];
+  city.sites.parkAndRide = [0]; city.transit.corridorNodeIds = [0];
+  city.proposals = [{ id: 'p1', name: 'Bypass', cost: 10e6, newNodes: [], links: [{ from: 0, to: 3, cls: 'primary', lanes: 1, kmh: 80, lengthM: 2500, oneway: false, xy: [[0,0],[3,0]] }] }];
+  const base = E.solve(city, []);
+  const plans = [
+    [{ action: 'lane', site: 0 }], [{ action: 'turnlane', site: 1 }], [{ action: 'roundabout', site: 1 }],
+    [{ action: 'coordinate', site: 'c1' }], [{ action: 'newroad', site: 0 }],
+    [{ action: 'frequency', site: null, step: 1 }], [{ action: 'fare', site: null, step: 1 }], [{ action: 'parkride', site: 0 }]
+  ];
+  for (const p of plans) {
+    const withIt = E.solve(city, p);
+    assert.notEqual(withIt.delayVehH, base.delayVehH, `plan ${p[0].action} changed nothing`);
+    const back = E.solve(city, []);
+    assert.equal(back.delayVehH, base.delayVehH);
+  }
+});
+
+test('pct clamps and rankedValue inverts', () => {
+  assert.equal(E.rankedValue(37.44), 1000 - 374);
+  assert.equal(E.rankedValue(0), 1000);
+  assert.equal(E.pctOf(50, 100), 50);
+  assert.equal(E.pctOf(150, 100), 0);
+});
