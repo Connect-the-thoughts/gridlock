@@ -1,25 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { toyCity } from './fixtures.mjs';
 const require = createRequire(import.meta.url);
 const E = require('../engine.js');
-
-// Two-route toy: zone A at node 0, zone B at node 3.
-// Route 1: 0→1→3 (fast, low cap). Route 2: 0→2→3 (slow, high cap).
-export function toyCity() {
-  const link = (id, from, to, kmh, lengthM, cap) =>
-    ({ id, from, to, name: 'L' + id, cls: 'primary', lanes: 1, oneway: true, kmh, lengthM, capacityVph: cap, builtUp: false, xy: [[0,0],[1,1]] });
-  return {
-    meta: { id: 'toy', name: 'Toy', population: 1000, budget: 5e6, baselineDelayVehH: 0 },
-    nodes: [0,1,2,3].map(i => ({ id: i, x: i, y: 0, lat: 0, lon: 0, legs: 2, control: 'none' })),
-    links: [ link(0,0,1,60,1000,500), link(1,1,3,60,1000,500), link(2,0,2,40,1000,2000), link(3,2,3,40,1000,2000) ],
-    zones: [ { id: 0, node: 0, name: 'A', productions: 1500, attractions: 0 }, { id: 1, node: 3, name: 'B', productions: 0, attractions: 1500 } ],
-    od: [[0, 1500],[0, 0]],
-    sites: { widenable: [], turnLane: [], roundabout: [], corridors: [], parkAndRide: [] },
-    transit: { baseHeadwayMin: 30, baseFare: 2.5, corridorNodeIds: [] },
-    proposals: []
-  };
-}
 
 test('bpr is monotone in volume and equals t0 at zero flow', () => {
   assert.equal(E.bpr(60, 0, 1000), 60);
@@ -79,4 +63,61 @@ test('pct clamps and rankedValue inverts', () => {
   assert.equal(E.rankedValue(0), 1000);
   assert.equal(E.pctOf(50, 100), 50);
   assert.equal(E.pctOf(150, 100), 0);
+});
+
+test('modeSplit shares are quantized to 1e-6 for cross-engine determinism', () => {
+  // Math.exp is implementation-approximated (like Math.pow); this guards against a
+  // last-ulp difference between JS engines leaking into the transit share.
+  const city = toyCity();
+  const world = E.applyPlan(city, []);
+  const carOD = E.modeSplit(city, world);
+  for (let z = 0; z < city.zones.length; z++) {
+    for (let j = 0; j < city.zones.length; j++) {
+      const trips = city.od[z][j];
+      if (j === z || !(trips > 0)) continue;
+      const scaled = (1 - carOD[z][j] / trips) * 1e6;
+      assert.ok(Math.abs(scaled - Math.round(scaled)) < 1e-9, `share not quantized to 1e-6: ${scaled}`);
+    }
+  }
+});
+
+test('newroad proposal: array index wins over an authored newNodes.id', () => {
+  const city = toyCity();
+  city.proposals = [{
+    id: 'p1', name: 'X', cost: 6e6,
+    newNodes: [{ id: 99, x: 5, y: 5, lat: 0, lon: 0 }],
+    links: [{ from: 0, to: -1, cls: 'primary', lanes: 1, kmh: 50, lengthM: 500, oneway: false, xy: [[0,0],[5,5]] }]
+  }];
+  const world = E.applyPlan(city, [{ action: 'newroad', site: 0 }]);
+  const newNodeIndex = city.nodes.length;
+  assert.equal(world.city.nodes[newNodeIndex].id, newNodeIndex);
+});
+
+test('roundabout supersedes an earlier turnlane multiplier (defense in depth)', () => {
+  const city = toyCity();
+  city.sites.turnLane = [1]; city.sites.roundabout = [1];
+  const withBoth = E.solve(city, [{ action: 'turnlane', site: 1 }, { action: 'roundabout', site: 1 }]);
+  const roundaboutOnly = E.solve(city, [{ action: 'roundabout', site: 1 }]);
+  assert.equal(withBoth.delayVehH, roundaboutOnly.delayVehH);
+});
+
+test('applyPlan skips an unknown corridor id instead of throwing', () => {
+  const city = toyCity();
+  const base = E.solve(city, []);
+  const withUnknown = E.solve(city, [{ action: 'coordinate', site: 'nope' }]);
+  assert.equal(withUnknown.delayVehH, base.delayVehH);
+});
+
+test('frequency headway derives from baseHeadwayMin, not hardcoded 30/15/10', () => {
+  const city = toyCity();
+  city.transit.baseHeadwayMin = 20;
+  const one = E.applyPlan(city, [{ action: 'frequency', site: null, step: 1 }]);
+  assert.equal(one.headwayMin, 10);
+  const two = E.applyPlan(city, [{ action: 'frequency', site: null, step: 1 }, { action: 'frequency', site: null, step: 2 }]);
+  assert.equal(two.headwayMin, 7); // round(20/3) = 6.67 → 7
+});
+
+test('applyPlan rejects an unknown action rather than silently ignoring it', () => {
+  const city = toyCity();
+  assert.throws(() => E.applyPlan(city, [{ action: 'teleport', site: 0 }]), /unknown action/);
 });

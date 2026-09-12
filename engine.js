@@ -60,7 +60,8 @@
       var v = city.zones[j].node;
       if (sp.prevLink[v] < 0) continue;                 // unreachable: dropped (checker forbids this)
       k = 0;
-      while (v !== city.zones[z].node && k++ < 100000) {
+      while (v !== city.zones[z].node) {
+        if (k++ >= 100000) throw new Error('loadAON: path exceeds 100000 hops (cycle in prevLink?)');
         var a = sp.prevLink[v]; volumes[a] += d; nodeVol[v] += d; v = g.arcs[a].from;
       }
     }
@@ -132,6 +133,9 @@
         var carMin = sp[z].dist[city.zones[j].node] / 60;
         var trMin = TRANSIT_TIME_FACTOR * carMin + world.headwayMin / 2 + world.fare * FARE_MIN_PER_DOLLAR;
         var shareTr = 1 / (1 + Math.exp(-LOGIT_SCALE * (carMin - trMin)));
+        // Math.exp is implementation-approximated like Math.pow (not bit-identical across
+        // engines); quantizing to 1e-6 makes a last-ulp difference vanish.
+        shareTr = Math.round(shareTr * 1e6) / 1e6;
         var prShift = world.prShift[z] || 0;                 // park-and-ride: fixed share moves before the logit
         out[z][j] = trips * (1 - prShift) * (1 - shareTr);
       }
@@ -146,18 +150,23 @@
     var control = city.nodes.map(function (n) { return n.control; });
     var nodeMult = new Float64Array(city.nodes.length).fill(1);
     var prShift = new Float64Array(city.zones.length);
-    var headway = city.transit.baseHeadwayMin, fare = city.transit.baseFare, i, p;
+    var headway = city.transit.baseHeadwayMin, fare = city.transit.baseFare, freqSteps = 0, i, p;
     for (i = 0; i < plan.length; i++) {
       p = plan[i];
       switch (p.action) {
         case 'lane': links[p.site].capacityVph = links[p.site].capacityVph * (links[p.site].lanes + 1) / links[p.site].lanes; links[p.site].lanes += 1; break;
         case 'clear': break;                                   // prerequisite only
         case 'turnlane': nodeMult[p.site] *= MULT_TURNLANE; break;
-        case 'roundabout': control[p.site] = 'roundabout'; break;
-        case 'coordinate': city.sites.corridors.filter(function (c) { return c.id === p.site; })[0].nodes.forEach(function (n) { nodeMult[n] *= MULT_COORD; }); break;
+        case 'roundabout': control[p.site] = 'roundabout'; nodeMult[p.site] = 1; break;  // supersedes any earlier turnlane multiplier
+        case 'coordinate': {
+          var corridor = city.sites.corridors.filter(function (c) { return c.id === p.site; })[0];
+          if (corridor) corridor.nodes.forEach(function (n) { nodeMult[n] *= MULT_COORD; });
+          // else: stale/unknown corridor id (e.g. a resume/challenge payload) — skip, don't throw
+          break;
+        }
         case 'newroad': {
           var pr = city.proposals[p.site], base = nodes.length, k;
-          for (k = 0; k < pr.newNodes.length; k++) nodes.push(Object.assign({ id: base + k, legs: 2, control: 'none' }, pr.newNodes[k]));
+          for (k = 0; k < pr.newNodes.length; k++) nodes.push(Object.assign({}, pr.newNodes[k], { id: base + k, legs: 2, control: 'none' }));
           for (k = 0; k < pr.links.length; k++) {
             var L = pr.links[k];
             links.push({ id: links.length, from: L.from < 0 ? base + (-L.from - 1) : L.from, to: L.to < 0 ? base + (-L.to - 1) : L.to,
@@ -166,9 +175,10 @@
           }
           break;
         }
-        case 'frequency': headway = headway === 30 ? 15 : 10; break;
+        case 'frequency': freqSteps++; headway = Math.round(city.transit.baseHeadwayMin / (freqSteps + 1)); break;
         case 'fare': fare = fare === city.transit.baseFare ? fare / 2 : 0; break;
         case 'parkride': prShift[p.site] = PR_SHARE; break;
+        default: throw new Error('unknown action ' + p.action);
       }
     }
     var wcity = Object.assign({}, city, { nodes: nodes, links: links });

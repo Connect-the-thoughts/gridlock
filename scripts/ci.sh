@@ -3,5 +3,4 @@
 # Must not assume the laptop: node only, no Python, no network.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-node --test
-node scripts/check-cities.mjs
+npm run check

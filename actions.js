@@ -19,7 +19,7 @@
       costOf: function () { return 0.2 * M; } },
     { id: 'newroad',   label: 'New road',             scope: 'proposal', effect: 'Builds the corridor.',
       costOf: function (c, s) { return c.proposals[s].cost; } },
-    { id: 'frequency', label: 'More buses',           scope: 'city', steps: 2, effect: 'Headway 30 → 15 → 10 min.',
+    { id: 'frequency', label: 'More buses',           scope: 'city', steps: 2, effect: 'Buses run twice, then three times as often.',
       costOf: function () { return 2 * M; } },
     { id: 'fare',      label: 'Cheaper fares',        scope: 'city', steps: 2, effect: 'Half fare, then free.',
       costOf: function (c, s, step) { return step === 1 ? 1.5 * M : 3 * M; } },
@@ -55,6 +55,7 @@
       case 'roundabout':
         if (S.roundabout.indexOf(siteId) < 0) return 'not suitable';
         if (has(plan, 'roundabout', siteId)) return 'already built';
+        if (has(plan, 'turnlane', siteId)) return 'remove the turn lane first';
         return true;
       case 'coordinate':
         if (!S.corridors.some(function (c) { return c.id === siteId; })) return 'not a signal corridor';

@@ -1,5 +1,5 @@
 {
-  "meta": { "id": "_tutorial", "name": "Tutorial Town", "population": 5000, "budget": 6000000, "baselineDelayVehH": 18.246301852453165 },
+  "meta": { "id": "_tutorial", "name": "Tutorial Town", "population": 5000, "budget": 6000000, "baselineDelayVehH": 18.246300601671106 },
   "nodes": [
     { "id": 0, "x": 0,    "y": 0,    "lat": 0, "lon": 0, "legs": 2, "control": "none" },
     { "id": 1, "x": 1500, "y": 0,    "lat": 0, "lon": 0, "legs": 3, "control": "signal" },

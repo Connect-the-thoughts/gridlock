@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { toyCity } from './engine.test.mjs';
+import { toyCity } from './fixtures.mjs';
 const require = createRequire(import.meta.url);
 const A = require('../actions.js');
 
@@ -16,6 +16,7 @@ test('eligibility: each rule has a yes and a no', () => {
   assert.equal(A.eligible(c, [], 'turnlane', 1), true);
   assert.equal(A.eligible(c, [{ action: 'roundabout', site: 1 }], 'turnlane', 1), 'a roundabout has no signal');
   assert.equal(A.eligible(c, [], 'roundabout', 0), 'not suitable');
+  assert.equal(A.eligible(c, [{ action: 'turnlane', site: 1 }], 'roundabout', 1), 'remove the turn lane first');
   assert.equal(A.eligible(c, [], 'coordinate', 'c1'), true);
   assert.equal(A.eligible(c, [], 'coordinate', 'zz'), 'not a signal corridor');
   assert.equal(A.eligible(c, [], 'newroad', 0), true);
