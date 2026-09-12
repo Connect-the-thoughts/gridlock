@@ -1,0 +1,114 @@
+[
+  {
+    "id": "hillsborough-2",
+    "name": "Second Hillsborough crossing (Stratford ↔ Riverside Dr)",
+    "cost": 80000000,
+    "_where": "Stratford Trans-Canada Highway at Bunbury Road = node 164 @ 46.23399,-63.10229; Riverside Drive at the Exhibition Drive roundabout = node 152 @ 46.24782,-63.11197",
+    "newNodes": [],
+    "links": [
+      {
+        "from": 164,
+        "to": 152,
+        "cls": "primary",
+        "lanes": 2,
+        "oneway": false,
+        "kmh": 60,
+        "lengthM": 1964.8,
+        "xy": [
+          [
+            -180.0,
+            -2889.6
+          ],
+          [
+            -924.1,
+            -1351.6
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "route1-bypass-ext",
+    "name": "Route 1 bypass extension (Cornwall ↔ North River Rd)",
+    "cost": 45000000,
+    "_where": "Trans-Canada Highway at the Cornwall bypass end = node 16 @ 46.24999,-63.21110; North River Road at Beach Grove Road = node 54 @ 46.25719,-63.15364",
+    "newNodes": [],
+    "links": [
+      {
+        "from": 16,
+        "to": 54,
+        "cls": "trunk",
+        "lanes": 2,
+        "oneway": false,
+        "kmh": 80,
+        "lengthM": 5176.0,
+        "xy": [
+          [
+            -8565.3,
+            -1095.6
+          ],
+          [
+            -4134.3,
+            -305.8
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "brackley-connector",
+    "name": "Brackley Point Rd ↔ Capital Dr connector",
+    "cost": 18000000,
+    "_where": "Brackley Point Road at the Arterial Highway = node 104 @ 46.27497,-63.13054; Capital Drive west of Lower Malpeque Road = node 50 @ 46.26468,-63.15573",
+    "newNodes": [],
+    "links": [
+      {
+        "from": 104,
+        "to": 50,
+        "cls": "secondary",
+        "lanes": 1,
+        "oneway": false,
+        "kmh": 60,
+        "lengthM": 2590.3,
+        "xy": [
+          [
+            -2350.9,
+            1666.6
+          ],
+          [
+            -4293.7,
+            526.9
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "riverside-ext",
+    "name": "Riverside Dr extension to Mount Edward Rd",
+    "cost": 22000000,
+    "_where": "Riverside Drive north end at the Trunk road junction = node 156 @ 46.26459,-63.11046; Mount Edward Road at Oak Drive = node 92 @ 46.26628,-63.13735",
+    "newNodes": [],
+    "links": [
+      {
+        "from": 156,
+        "to": 92,
+        "cls": "secondary",
+        "lanes": 1,
+        "oneway": false,
+        "kmh": 60,
+        "lengthM": 2392.5,
+        "xy": [
+          [
+            -805.5,
+            511.3
+          ],
+          [
+            -2877.2,
+            702.1
+          ]
+        ]
+      }
+    ]
+  }
+]

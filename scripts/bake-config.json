@@ -1,0 +1,70 @@
+{
+  "charlottetown": {
+    "name": "Charlottetown",
+    "province": "PE",
+    "population": 80000,
+    "bbox": {
+      "north": 46.32,
+      "south": 46.2,
+      "east": -62.98,
+      "west": -63.22
+    },
+    "highwayClasses": [
+      "motorway",
+      "trunk",
+      "primary",
+      "secondary",
+      "tertiary",
+      "motorway_link",
+      "trunk_link",
+      "primary_link"
+    ],
+    "trimKm": 6,
+    "budgetPerCapita": 250,
+    "transitCorridorRoads": [
+      "University Avenue",
+      "North River Road",
+      "Mount Edward Road",
+      "Grafton Street",
+      "Kent Street",
+      "Trans-Canada Highway",
+      "Riverside Drive",
+      "Belvedere Avenue",
+      "Capital Drive",
+      "St. Peters Road",
+      "Brackley Point Road"
+    ],
+    "attractors": [
+      {
+        "name": "Downtown",
+        "lat": 46.235,
+        "lon": -63.126,
+        "weight": 1.0
+      },
+      {
+        "name": "UPEI",
+        "lat": 46.258,
+        "lon": -63.137,
+        "weight": 0.6
+      },
+      {
+        "name": "QEH hospital",
+        "lat": 46.2545,
+        "lon": -63.116,
+        "weight": 0.4
+      },
+      {
+        "name": "Charlottetown Mall / West Royalty",
+        "lat": 46.266,
+        "lon": -63.156,
+        "weight": 0.6
+      },
+      {
+        "name": "Business park (Sherwood/Belvedere)",
+        "lat": 46.268,
+        "lon": -63.124,
+        "weight": 0.3
+      }
+    ]
+  }
+}
