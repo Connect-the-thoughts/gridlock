@@ -1,0 +1,23 @@
+{
+  "meta": { "id": "_tutorial", "name": "Tutorial Town", "population": 5000, "budget": 6000000, "baselineDelayVehH": 18.246301852453165 },
+  "nodes": [
+    { "id": 0, "x": 0,    "y": 0,    "lat": 0, "lon": 0, "legs": 2, "control": "none" },
+    { "id": 1, "x": 1500, "y": 0,    "lat": 0, "lon": 0, "legs": 3, "control": "signal" },
+    { "id": 2, "x": 1500, "y": 1200, "lat": 0, "lon": 0, "legs": 2, "control": "none" },
+    { "id": 3, "x": 0,    "y": 1200, "lat": 0, "lon": 0, "legs": 2, "control": "none" }
+  ],
+  "links": [
+    { "id": 0, "from": 0, "to": 1, "name": "Main St",  "cls": "secondary", "lanes": 1, "oneway": false, "kmh": 50, "lengthM": 1500, "capacityVph": 1200, "builtUp": false, "xy": [[0,0],[1500,0]] },
+    { "id": 1, "from": 1, "to": 2, "name": "Campus Dr","cls": "tertiary",  "lanes": 1, "oneway": false, "kmh": 50, "lengthM": 1200, "capacityVph": 900,  "builtUp": true,  "xy": [[1500,0],[1500,1200]] },
+    { "id": 2, "from": 0, "to": 3, "name": "River Rd", "cls": "tertiary",  "lanes": 1, "oneway": false, "kmh": 40, "lengthM": 1200, "capacityVph": 900,  "builtUp": false, "xy": [[0,0],[0,1200]] },
+    { "id": 3, "from": 3, "to": 2, "name": "North Ave","cls": "tertiary",  "lanes": 1, "oneway": false, "kmh": 40, "lengthM": 1500, "capacityVph": 900,  "builtUp": false, "xy": [[0,1200],[1500,1200]] }
+  ],
+  "zones": [
+    { "id": 0, "node": 0, "name": "Homes",    "productions": 1800, "attractions": 100 },
+    { "id": 1, "node": 1, "name": "Downtown", "productions": 100,  "attractions": 1200 },
+    { "id": 2, "node": 2, "name": "Campus",   "productions": 100,  "attractions": 700 }
+  ],
+  "od": [[0, 1200, 600], [50, 0, 50], [50, 50, 0]],
+  "sites": { "widenable": [0, 1], "turnLane": [1], "roundabout": [1], "corridors": [], "parkAndRide": [] },
+  "transit": { "baseHeadwayMin": 30, "baseFare": 2.5, "corridorNodeIds": [0, 1] }
+}
