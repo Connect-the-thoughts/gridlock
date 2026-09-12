@@ -4,7 +4,7 @@
   "private": true,
   "description": "Gridlock — spend a fixed budget on a real city's roads and transit; remove as much rush-hour delay as you can.",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test",
     "check:cities": "node scripts/check-cities.mjs",
     "balance": "node scripts/balance-report.mjs",
     "check": "npm test && npm run check:cities"
