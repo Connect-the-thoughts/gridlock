@@ -1,0 +1,25 @@
+/* Gridlock — game-owned CSS only. Vended classes are never restyled here.
+   Token names verified against connectthethoughts/tokens.css — the brief's
+   `--text`/`--surface`/`--muted` guesses don't exist there; the arcade's real
+   names are `--fg`, `--bg-elev`, `--fg-muted` (tokens.css:34-35, :32). `--good`/
+   `--warn`/`--bad`/`--border` are real as guessed (tokens.css:37,50-52). There
+   is no bare `--radius` token either — only `--radius-sm/md/lg` (tokens.css:
+   65-67); `--radius-lg` (10px) is the closest match to the brief's 12px guess. */
+.gl-board { position: relative; width: 100%;
+  /* Board height from the shared chrome measurement; fallback for pre-boot paint. */
+  --gl-chrome-v: var(--arcade-chrome-v, 300px);
+  height: clamp(220px, calc(100dvh - var(--gl-chrome-v)), 640px);
+  border-radius: var(--radius-lg, 12px); overflow: hidden; background: var(--bg-elev); }
+.gl-board canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.gl-board canvas.is-dragging { cursor: grabbing; }
+.gl-legend { position: absolute; left: 8px; bottom: 6px; font-size: 11px; color: var(--fg-muted); display: flex; gap: 6px; align-items: center; pointer-events: none; }
+.gl-leg { display: inline-block; width: 14px; height: 4px; border-radius: 2px; }
+.gl-leg--good { background: var(--good); } .gl-leg--warn { background: var(--warn); } .gl-leg--bad { background: var(--bad); }
+.gl-sheet-tabs { display: flex; gap: 6px; margin: 0 0 10px; }
+.gl-tab { flex: 1; } .gl-tab.active { font-weight: 700; text-decoration: underline; }
+.gl-action { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border, rgba(0,0,0,.08)); }
+.gl-action__label { font-weight: 600; } .gl-action__effect { grid-column: 1; font-size: 13px; color: var(--fg-muted); }
+.gl-action__cost { grid-row: 1 / span 2; white-space: nowrap; }
+.gl-action.is-disabled .gl-action__label { color: var(--fg-muted); }
+.gl-action__why { grid-column: 1 / -1; font-size: 12px; color: var(--warn); }
+.gl-empty { color: var(--fg-muted); padding: 12px 0; }

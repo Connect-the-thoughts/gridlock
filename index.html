@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- arcade:boot-guard:start -->
+  <script>
+/* ============================================================
+   Connect the Thoughts — shared boot guard.
+   Source of truth: connectthethoughts/shared/arcade-boot-guard.js.
+   Never hand-edit a vendored copy — edit here, then
+   `node scripts/sync-shared.mjs --all` (or name the game).
+
+   Classic games destructure vended globals at PARSE TIME
+   (`var { foo } = window.ArcadeSomething`), so a transient error on any ONE
+   shared script — a blocked/503'd file, a stale cache serving a broken
+   build — throws before the game ever renders, and the page is a silent
+   dead shell: no board, no error, nothing a player can act on.
+
+   This is the fix: a tiny self-running script that must be the FIRST
+   <script> tag on the page (before arcade-floor.js and every other vended
+   script). It has no dependencies — it must survive even when everything
+   after it fails to load — and requires ZERO per-game wiring beyond the
+   tag itself.
+
+   What it does:
+     1. Hooks window.onerror / unhandledrejection for the boot window.
+     2. On a fatal early error, shows a small themed overlay
+        ("Something didn't load — Tap to reload") with a reload button
+        that busts the cache (?cb=<timestamp>). Styled with inline
+        `var(--token, <fallback>)` so it reads correctly whether or not
+        tokens.css made it onto the page — the exact failure mode it
+        guards against.
+     3. Disarms itself (stops listening, never shows the overlay again on
+        this page load) once DOMContentLoaded has passed plus a short
+        grace tick with no errors, OR the moment a game calls the optional
+        `window.ArcadeBootGuard.ready()` — entirely opt-in, no game needs
+        to call it for the guard to work.
+
+   Usage: add ONE tag, first in the vended <script> block:
+     <script src="arcade-boot-guard.js?v=..."><\/script>
+   ============================================================ */
+
+(function () {
+  if (window.ArcadeBootGuard) return; // idempotent if the tag is ever duplicated
+
+  var armed = true;
+  var shown = false;
+  var GRACE_MS = 1800;
+
+  function reloadHref() {
+    try {
+      var u = new URL(location.href);
+      u.searchParams.set('cb', String(Date.now()));
+      return u.toString();
+    } catch (_) {
+      return location.href;
+    }
+  }
+
+  function showOverlay() {
+    if (shown) return;
+    shown = true;
+    try {
+      var overlay = document.createElement('div');
+      overlay.id = 'arcade-boot-guard-overlay';
+      overlay.setAttribute(
+        'style',
+        [
+          'position:fixed',
+          'inset:0',
+          'z-index:2147483647',
+          'display:flex',
+          'align-items:center',
+          'justify-content:center',
+          'flex-direction:column',
+          'gap:16px',
+          'text-align:center',
+          'padding:24px',
+          'background:var(--bg, #23221c)',
+          'color:var(--fg, #efe9d8)',
+          'font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif'
+        ].join(';')
+      );
+
+      var msg = document.createElement('div');
+      msg.textContent = "Something didn't load — Tap to reload";
+      msg.setAttribute(
+        'style',
+        'font-size:18px;font-weight:600;max-width:320px;line-height:1.4;'
+      );
+
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Reload';
+      btn.setAttribute(
+        'style',
+        [
+          'font-size:16px',
+          'padding:12px 28px',
+          'min-height:44px',
+          'min-width:44px',
+          'border:none',
+          'border-radius:var(--radius-lg, 10px)',
+          'background:var(--accent, #dcb469)',
+          'color:var(--on-accent, #23221c)',
+          'cursor:pointer'
+        ].join(';')
+      );
+      btn.addEventListener('click', function () {
+        location.href = reloadHref();
+      });
+
+      overlay.appendChild(msg);
+      overlay.appendChild(btn);
+      (document.body || document.documentElement).appendChild(overlay);
+    } catch (_) {
+      // DOM manipulation itself is failing — last resort, force a reload.
+      try {
+        location.reload();
+      } catch (__) {
+        /* nothing left to try */
+      }
+    }
+  }
+
+  // Not every boot-time error strands the player, and the overlay is a
+  // FULL-SCREEN dead end: showing it over a page that actually works is a
+  // worse bug than the one this guard was built for. The listener below is
+  // registered in the CAPTURE phase, which means it also receives resource
+  // load failures from every element on the page — so it must classify.
+  //
+  // Fatal (the dead shell this guard exists for):
+  //   - an uncaught exception, which targets window: this is the parse-time
+  //     `var { foo } = window.ArcadeSomething` throw described up top;
+  //   - a <script> that failed to LOAD, which leaves exactly that global
+  //     missing and kills the next script to destructure it.
+  //
+  // Not fatal (page is degraded, but playable — never cover it):
+  //   - an image / stylesheet / media resource that 404s, 403s, or is blocked
+  //     by a content blocker, a proxy, or a privacy relay. A missing icon or
+  //     an unstyled board is not a reason to tell the player the site is down;
+  //   - an unhandled promise rejection. The failure mode above is SYNCHRONOUS
+  //     — by the time a promise rejects, the boot path has already run. In
+  //     practice these are the arcade's own network calls (leaderboard,
+  //     badges), which are offline-tolerant by design.
+  function isFatal(evt) {
+    if (evt.type !== 'error') return false;
+    var t = evt.target;
+    if (!t || t === window || t === document) return true; // uncaught exception
+    return t.tagName === 'SCRIPT'; // vended global will be missing
+  }
+
+  function onError(evt) {
+    if (!armed) return;
+    if (!isFatal(evt)) return;
+    showOverlay();
+  }
+
+  window.addEventListener('error', onError, true);
+  window.addEventListener('unhandledrejection', onError, true);
+
+  function disarm() {
+    if (!armed) return;
+    armed = false;
+    window.removeEventListener('error', onError, true);
+    window.removeEventListener('unhandledrejection', onError, true);
+  }
+
+  // Optional early-disarm hook. No game is required to call this — the
+  // DOMContentLoaded + grace-tick path below covers every game with zero
+  // wiring — but a game that has its own definite "I'm live" moment may
+  // call it to stop listening sooner.
+  window.ArcadeBootGuard = { ready: disarm };
+
+  function armGraceTimer() {
+    setTimeout(disarm, GRACE_MS);
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    armGraceTimer();
+  } else {
+    document.addEventListener('DOMContentLoaded', armGraceTimer, { once: true });
+  }
+})();
+  </script>
+  <!-- arcade:boot-guard:end -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="description" content="Spend a fixed budget on a real city's roads and transit and remove as much rush-hour delay as you can. Part of the Connect the Thoughts arcade.">
+  <meta name="theme-color" content="#f5f1e8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#23221c" media="(prefers-color-scheme: dark)">
+  <title>Gridlock — Connect the Thoughts</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <script src="/shared/arcade-loader.js" data-game="gridlock"></script>
+  <link rel="stylesheet" href="styles.css?v=1">
+  <script src="/shared/arcade-loader.js" data-part="2"></script>
+</head>
+<body data-arcade-game="gridlock">
+  <arcade-topbar></arcade-topbar>
+
+  <main class="container gl-frame">
+    <!-- Band 2 of the shared shell (arcade-components.css): which puzzle you're
+         playing. Single lane — no #diffRow (Gridlock has no difficulty tiers). -->
+    <div class="game-bar">
+      <div id="mode-row" class="mode-toggle"></div>
+      <div class="game-bar-note" id="puzzleLabel">Daily</div>
+    </div>
+
+    <div class="play-card">
+      <!-- Band 3: the play head. Both tool slots stay empty here — game.js
+           (Task 8) mounts any icon tools via the shared ArcadeTools.mountTool,
+           the same way tumblers' Undo/Redo/Restart mount into these slots. -->
+      <div class="play-head">
+        <div class="play-tools" data-play-tools-lead></div>
+        <div class="play-head-main">
+          <h1 class="play-title">Gridlock</h1>
+          <p class="play-sub" id="playSub"></p>
+        </div>
+        <div class="play-tools" data-play-tools-trail></div>
+      </div>
+
+      <!-- The HUD triple (`.con-hud` canon order): budget remaining, delay
+           removed, hints used. All three shared `.con` counters. -->
+      <div class="con-hud">
+        <div id="budgetCounter"></div>
+        <div id="delayCounter"></div>
+        <div id="hintCounter"></div>
+      </div>
+
+      <div id="board" class="gl-board" data-arcade-board>
+        <canvas id="map" aria-label="City road map"></canvas>
+        <div class="gl-legend" aria-hidden="true"><span class="gl-leg gl-leg--good"></span>flowing <span class="gl-leg gl-leg--warn"></span>busy <span class="gl-leg gl-leg--bad"></span>jammed</div>
+      </div>
+
+      <!-- `.play-actions` holds ONLY the Submit button (control placement law:
+           game controls never sit beside the board). -->
+      <div class="play-actions">
+        <button id="submitBtn" class="btn btn-primary" type="button">Submit plan</button>
+      </div>
+
+      <div class="play-status" id="status" role="status" aria-live="polite"></div>
+    </div><!-- /.play-card -->
+
+    <!-- Results card (canonical inline mount — rendered by the shared ArcadeResults card). -->
+    <div id="resultsMount"></div>
+    <div id="shareCardWrap" class="share-card-wrap" hidden></div>
+  </main>
+
+  <!-- Action drawer. One sheet, three panes swapped by game.js (Task 8).
+       Class contract is shared/arcade-sheets.css's actual names —
+       .drawer-sheet / .drawer-panel / .drawer-handle / .drawer-header /
+       .drawer-close / .drawer-body — NOT the .sheet-backdrop/.sheet/.sheet-title
+       the brief sketched (those classes are not defined anywhere in
+       arcade-sheets.css; see connectthethoughts/shared/arcade-sheets.css:57-129
+       for the real markup contract). Ids (actionSheet/sheetTitle/sheetBody)
+       and the .gl-tab pane switcher are game-owned and unchanged. -->
+  <div class="drawer-sheet" id="actionSheet" hidden>
+    <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="drawer-handle"></div>
+      <div class="drawer-header">
+        <h2 id="sheetTitle">Actions</h2>
+        <button class="drawer-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="gl-sheet-tabs" role="tablist">
+        <button class="gl-tab active" data-pane="site" type="button">Here</button>
+        <button class="gl-tab" data-pane="city" type="button">Citywide</button>
+        <button class="gl-tab" data-pane="plan" type="button">Your plan</button>
+      </div>
+      <div id="sheetBody" class="drawer-body"></div>
+    </div>
+  </div>
+
+  <!-- Leaderboard modal -->
+  <!-- Canonical shared leaderboard modal (driven by window.ArcadeLeaderboardUI).
+       Today/All-time/You — no .lb-diff-tabs (single lane, no difficulty). -->
+  <div class="modal-backdrop" id="lb-modal" hidden>
+    <div class="modal lb-modal-inner" role="dialog" aria-modal="true" aria-labelledby="lb-title">
+      <button class="modal-close-x" id="lb-close" type="button" aria-label="Close">&times;</button>
+      <h2 id="lb-title">Leaderboard</h2>
+      <p class="lb-blurb">Ranked by rush-hour delay removed. Replay to beat your best.</p>
+      <div class="lb-scope-tabs" id="lb-scope-tabs" role="group" aria-label="Leaderboard scope">
+        <button class="lb-scope-tab active" data-scope="today" type="button">Today</button>
+        <button class="lb-scope-tab" data-scope="alltime" type="button">All-time</button>
+        <button class="lb-scope-tab" data-scope="you" type="button">You</button>
+      </div>
+      <div class="lb-nav">
+        <button id="lb-prev" class="lb-nav-btn" type="button" aria-label="Previous day">&#x2039;</button>
+        <span id="lb-day-label">Today</span>
+        <button id="lb-next" class="lb-nav-btn" type="button" aria-label="Next day">&#x203a;</button>
+      </div>
+      <div class="lb-body" id="lb-body"><div class="lb-status">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- Name modal -->
+  <div id="nameModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="nameTitle">
+      <h2 id="nameTitle">Pick a name</h2>
+      <p class="results-sub">Shown on the leaderboard. You can change it anytime.</p>
+      <input id="nameInput" class="lb-input" type="text" maxlength="24" placeholder="e.g. teal_otter" autocomplete="off">
+      <div id="nameNote" class="lb-join-note" role="status" aria-live="polite"></div>
+      <div class="results-actions">
+        <button id="nameSave" class="btn btn-primary" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help modal -->
+  <div id="helpModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <button class="modal-close-x" data-close type="button" aria-label="Close">&times;</button>
+      <h2 id="helpTitle">How to play</h2>
+      <ul class="help-list">
+        <li><b>Tap a road or junction</b> to see what you can build there, and what it costs.</li>
+        <li><b>Spend the budget</b> on lanes, turn lanes, roundabouts, new roads, or buses. Undo is free.</li>
+        <li><b>Watch the meter:</b> it shows how much rush-hour delay your plan removes.</li>
+        <li><b>Fixing one jam moves it.</b> Follow the red downstream before you submit.</li>
+        <li><b>Consultant</b> names the worst road and the best fix, for a fee from your budget.</li>
+      </ul>
+      <p class="help-foot">Map data © OpenStreetMap contributors, ODbL.</p>
+    </div>
+  </div>
+
+  <!-- Shared leaderboard data layer + modal UI (classic window globals; must load before game.js). -->
+  <script src="/shared/arcade-loader.js" data-part="3"></script>
+  <script src="engine.js?v=1"></script>
+  <script src="actions.js?v=1"></script>
+  <script src="map.js?v=1"></script>
+  <script src="game.js?v=1"></script>
+</body>
+</html>
