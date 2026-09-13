@@ -191,7 +191,7 @@
   <title>Gridlock — Connect the Thoughts</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <script src="/shared/arcade-loader.js" data-game="gridlock"></script>
-  <link rel="stylesheet" href="styles.css?v=1">
+  <link rel="stylesheet" href="styles.css?v=5">
   <script src="/shared/arcade-loader.js" data-part="2"></script>
 </head>
 <body data-arcade-game="gridlock">
@@ -202,7 +202,11 @@
          playing. Single lane — no #diffRow (Gridlock has no difficulty tiers). -->
     <div class="game-bar">
       <div id="mode-row" class="mode-toggle"></div>
-      <div class="game-bar-note" id="puzzleLabel">Daily</div>
+      <!-- Standard control 7: this note names only `Practice` and `Archive`.
+           EMPTY on the plain daily (`:empty` hides it) — the word "Daily"
+           only repeats the lit mode toggle, and a date here never fitted a
+           phone. game.js fills it. -->
+      <div class="game-bar-note" id="puzzleLabel"></div>
     </div>
 
     <div class="play-card">
@@ -231,10 +235,17 @@
         <div class="gl-legend" aria-hidden="true"><span class="gl-leg gl-leg--good"></span>flowing <span class="gl-leg gl-leg--warn"></span>busy <span class="gl-leg gl-leg--bad"></span>jammed</div>
       </div>
 
-      <!-- `.play-actions` holds ONLY the Submit button (control placement law:
-           game controls never sit beside the board). -->
+      <!-- `.play-actions` — centred under the board, where every press that
+           ADVANCES OR ALTERS the round lives (control placement law 14). Both
+           of these do: Submit ends the round, and "Your plan" is the only door
+           to the moves that have no map referent (buses, fares, park-and-ride)
+           and to taking an action back. Neither can be a play-head tool: the
+           head is ICON TOOLS ONLY, from the sanctioned vocabulary
+           (Undo/Redo/Restart, Hint, the view tools) — "Your plan" is in
+           neither family, and check-controls.mjs enforces exactly that. -->
       <div class="play-actions">
-        <button id="submitBtn" class="btn btn-primary" type="button">Submit plan</button>
+        <button id="planBtn" class="btn secondary" type="button">Your plan</button>
+        <button id="submitBtn" class="btn" type="button">Submit plan</button>
       </div>
 
       <div class="play-status" id="status" role="status" aria-live="polite"></div>
@@ -276,7 +287,7 @@
     <div class="modal lb-modal-inner" role="dialog" aria-modal="true" aria-labelledby="lb-title">
       <button class="modal-close-x" id="lb-close" type="button" aria-label="Close">&times;</button>
       <h2 id="lb-title">Leaderboard</h2>
-      <p class="lb-blurb">Ranked by rush-hour delay removed. Replay to beat your best.</p>
+      <p class="lb-blurb">Ranked by rush-hour delay removed. One plan a day, and the first one counts.</p>
       <div class="lb-scope-tabs" id="lb-scope-tabs" role="group" aria-label="Leaderboard scope">
         <button class="lb-scope-tab active" data-scope="today" type="button">Today</button>
         <button class="lb-scope-tab" data-scope="alltime" type="button">All-time</button>
@@ -316,7 +327,10 @@
         <li><b>Fixing one jam moves it.</b> Follow the red downstream before you submit.</li>
         <li><b>Consultant</b> names the worst road and the best fix, for a fee from your budget.</li>
       </ul>
-      <p class="help-foot">Map data © OpenStreetMap contributors, ODbL.</p>
+      <!-- Attribution, not rules copy. A <p> here is HELP-STANDARD §3's
+           "<p> soup" and check-help-copy.mjs fails it; the line still
+           counts against the modal's 100-word budget either way. -->
+      <div class="help-foot">Map data © OpenStreetMap contributors, ODbL.</div>
     </div>
   </div>
 
@@ -324,7 +338,7 @@
   <script src="/shared/arcade-loader.js" data-part="3"></script>
   <script src="engine.js?v=1"></script>
   <script src="actions.js?v=1"></script>
-  <script src="map.js?v=1"></script>
-  <script src="game.js?v=1"></script>
+  <script src="map.js?v=4"></script>
+  <script src="game.js?v=5"></script>
 </body>
 </html>

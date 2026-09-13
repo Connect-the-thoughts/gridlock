@@ -31,7 +31,10 @@
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       for (i = 0; i < links.length; i++) {
         var Lk = links[i], r = linkRatio[i];
-        ctx.strokeStyle = r > 1 ? bad : r > 0.8 ? warn : good;
+        /* Tri-state boundary: 0.8 is already BUSY, not flowing — `>` left the
+           exact-0.8 link green, which is the one value the balance report
+           prints most (capacities are round numbers). */
+        ctx.strokeStyle = r > 1 ? bad : r >= 0.8 ? warn : good;
         ctx.lineWidth = (W[Lk.cls] || 2) * dpr * (Lk.proposal != null ? 1.3 : 1);
         if (Lk.proposal != null) ctx.setLineDash([]);
         path(Lk.xy); ctx.stroke();
@@ -56,7 +59,15 @@
     function sel(s, ink) { ctx.strokeStyle = ink; ctx.lineWidth = 2 * dpr; ctx.setLineDash([4 * dpr, 3 * dpr]);
       if (s.kind === 'link') { ctx.lineWidth = ((W[world.city.links[s.id].cls] || 2) + 8) * dpr; ctx.globalAlpha = 0.5; path(world.city.links[s.id].xy); ctx.stroke(); ctx.globalAlpha = 1; }
       else if (s.kind === 'node') { var nd = world.city.nodes[s.id], p = toPx(nd.x, nd.y); ctx.beginPath(); ctx.arc(p[0], p[1], 11 * dpr, 0, 6.2832); ctx.stroke(); }
-      else if (s.kind === 'proposal') { city.proposals[s.id].links.forEach(function (L) { path(L.xy); ctx.stroke(); }); }
+      else if (s.kind === 'proposal') {
+        /* The SAME outside-ring treatment the link case gets. A 2px dashed
+           outline over a 2px dashed ghost was the ghost, so a tapped
+           proposal read as unselected. */
+        city.proposals[s.id].links.forEach(function (L) {
+          ctx.lineWidth = ((W[L.cls] || 2) + 8) * dpr; ctx.globalAlpha = 0.5;
+          path(L.xy); ctx.stroke(); ctx.globalAlpha = 1;
+        });
+      }
       ctx.setLineDash([]); }
 
     function distToSeg(px, py, a, b) { var dx = b[0] - a[0], dy = b[1] - a[1], t = dx || dy ? Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / (dx * dx + dy * dy))) : 0; var x = a[0] + t * dx, y = a[1] + t * dy; return Math.hypot(px - x, py - y); }
@@ -74,30 +85,65 @@
     }
 
     /* Gestures: drag pans, pinch zooms, wheel zooms, a short still tap selects. */
-    var ptrs = {}, moved = false, downAt = null, pinch0 = null;
+    /* `touched` is the view's provenance: false while the view is still the
+       one fit() computed, true the moment the player pans, pinches or
+       wheels. The canvas-fit callback below is the only consumer. */
+    var ptrs = {}, moved = false, downAt = null, pinch0 = null, touched = false;
     canvas.addEventListener('pointerdown', function (e) { canvas.setPointerCapture(e.pointerId); ptrs[e.pointerId] = [e.clientX, e.clientY]; moved = false; downAt = [e.clientX, e.clientY]; if (Object.keys(ptrs).length === 2) pinch0 = pinchState(); });
     canvas.addEventListener('pointermove', function (e) { if (!ptrs[e.pointerId]) return; var prev = ptrs[e.pointerId]; ptrs[e.pointerId] = [e.clientX, e.clientY]; var ids = Object.keys(ptrs);
-      if (ids.length === 1) { var dx = (e.clientX - prev[0]) * dpr, dy = (e.clientY - prev[1]) * dpr; if (Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) moved = true; if (moved) { view.tx += dx; view.ty += dy; canvas.classList.add('is-dragging'); redraw(); } }
-      else if (ids.length === 2 && pinch0) { var p = pinchState(); var f = p.d / pinch0.d; zoomAt(p.cx, p.cy, f * pinch0.s / view.s); view.tx += (p.cx - pinch0.cx); view.ty += (p.cy - pinch0.cy); pinch0 = { d: p.d, cx: p.cx, cy: p.cy, s: view.s }; moved = true; redraw(); } });
+      if (ids.length === 1) { var dx = (e.clientX - prev[0]) * dpr, dy = (e.clientY - prev[1]) * dpr; if (Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) moved = true; if (moved) { touched = true; view.tx += dx; view.ty += dy; canvas.classList.add('is-dragging'); redraw(); } }
+      else if (ids.length === 2 && pinch0) { var p = pinchState(); var f = p.d / pinch0.d; zoomAt(p.cx, p.cy, f * pinch0.s / view.s); view.tx += (p.cx - pinch0.cx); view.ty += (p.cy - pinch0.cy); pinch0 = { d: p.d, cx: p.cx, cy: p.cy, s: view.s }; moved = true; touched = true; redraw(); } });
     function up(e) { var was = !!ptrs[e.pointerId]; delete ptrs[e.pointerId]; canvas.classList.remove('is-dragging'); if (Object.keys(ptrs).length < 2) pinch0 = null;
       if (was && !moved && Object.keys(ptrs).length === 0 && tapCb) tapCb(e.clientX, e.clientY); }
     canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
-    canvas.addEventListener('wheel', function (e) { e.preventDefault(); var r = canvas.getBoundingClientRect(); zoomAt((e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr, Math.exp(-e.deltaY * 0.0015)); redraw(); }, { passive: false });
+    canvas.addEventListener('wheel', function (e) { e.preventDefault(); var r = canvas.getBoundingClientRect(); touched = true; zoomAt((e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr, Math.exp(-e.deltaY * 0.0015)); redraw(); }, { passive: false });
     function pinchState() { var ids = Object.keys(ptrs), a = ptrs[ids[0]], b = ptrs[ids[1]], r = canvas.getBoundingClientRect(); return { d: Math.hypot(a[0] - b[0], a[1] - b[1]), cx: ((a[0] + b[0]) / 2 - r.left) * dpr, cy: ((a[1] + b[1]) / 2 - r.top) * dpr, s: view.s }; }
     function zoomAt(px, py, f) { var s2 = Math.max(fitScale() * 0.8, Math.min(fitScale() * 12, view.s * f)); f = s2 / view.s; view.tx = px - f * (px - view.tx); view.ty = py - f * (py - view.ty); view.s = s2; }
     var fitS = null; function fitScale() { if (fitS == null) { var w = canvas.width, h = canvas.height, pad = 24 * dpr; fitS = Math.min((w - 2 * pad) / (bbox.x1 - bbox.x0), (h - 2 * pad) / (bbox.y1 - bbox.y0)); } return fitS; }
     function redraw() { if (lastState) draw(lastState); }
 
-    /* Bitmap follows the CSS box via the shared signal; never window 'resize'. */
-    var watch = root.ArcadeCanvasFit ? root.ArcadeCanvasFit.watch(canvas, function () { var c = centreWorld(); resize(); fitS = null; recentre(c); redraw(); }) : null;
+    /* Bitmap follows the CSS box via the shared signal; never window 'resize'.
+
+       TWO ANSWERS, and which one is right depends on whose view this is.
+       While the view is still the one fit() computed, a box change is the
+       SHELL settling — arcade-chrome-v.js publishes --arcade-chrome-v after
+       first paint, which resizes the board under a map already drawn against
+       the pre-boot fallback — and the honest response is to re-FIT. Recentring
+       there keeps a scale cut for a box that no longer exists: measured
+       2026-09-13 on Tutorial Town, the city was fit at 403 CSS px of height
+       and re-centred into 359, so both cross streets sat off the canvas and
+       the board looked like two lines.
+       Once the player has panned or zoomed, the view is THEIRS: keep the scale
+       and re-centre on what they were looking at, which is what a re-fit would
+       throw away. */
+    var watch = root.ArcadeCanvasFit ? root.ArcadeCanvasFit.watch(canvas, function () {
+      if (!touched) { fit(); fitS = null; redraw(); return; }
+      var c = centreWorld(); resize(); fitS = null; recentre(c); redraw();
+    }) : null;
+    /* Colours are read from CSS custom properties on every draw, so a theme
+       flip only lands if something REPAINTS — and nothing else does: a map
+       with no gesture and no plan change keeps the old palette until the
+       player touches it. (Measured 2026-09-13 in light mode: the junction
+       markers kept their dark-theme `--bg-elev` fill and read as solid black
+       dots.) Same defect and the same fix as the shared canvas globe —
+       arcade-globe.js observes `data-theme` on <html> for exactly this. */
+    var themeMO = null;
+    if (root.MutationObserver) {
+      themeMO = new root.MutationObserver(function () { redraw(); });
+      themeMO.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    }
+
     function centreWorld() { return fromPx(canvas.width / 2, canvas.height / 2); }
     function recentre(c) { var p = toPx(c[0], c[1]); view.tx += canvas.width / 2 - p[0]; view.ty += canvas.height / 2 - p[1]; }
 
     return {
-      setWorld: function (w) { world = w; }, draw: draw, fit: function () { fit(); fitS = null; redraw(); },
+      setWorld: function (w) { world = w; }, draw: draw,
+      /* A deal re-fits, and hands the view back to the module until the player
+         touches it again. */
+      fit: function () { touched = false; fit(); fitS = null; redraw(); },
       hitTest: function (x, y, sites) { return world ? hitTest(x, y, sites) : null; },
       onTap: function (cb) { tapCb = cb; },
-      destroy: function () { if (watch) watch.stop(); }
+      destroy: function () { if (watch) watch.stop(); if (themeMO) themeMO.disconnect(); }
     };
   }
   root.GridlockMap = { create: create };

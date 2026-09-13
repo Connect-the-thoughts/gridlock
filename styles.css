@@ -15,11 +15,41 @@
 .gl-legend { position: absolute; left: 8px; bottom: 6px; font-size: 11px; color: var(--fg-muted); display: flex; gap: 6px; align-items: center; pointer-events: none; }
 .gl-leg { display: inline-block; width: 14px; height: 4px; border-radius: 2px; }
 .gl-leg--good { background: var(--good); } .gl-leg--warn { background: var(--warn); } .gl-leg--bad { background: var(--bad); }
+/* The drawer's pane switcher. Game-owned markup and a game-owned class, so it
+   is styled here — but from TOKENS only; nothing vended is redefined. Bare
+   <button>s inherit the UA's white chrome, which reads as three broken
+   controls on the dark theme. */
 .gl-sheet-tabs { display: flex; gap: 6px; margin: 0 0 10px; }
-.gl-tab { flex: 1; } .gl-tab.active { font-weight: 700; text-decoration: underline; }
-.gl-action { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border, rgba(0,0,0,.08)); }
-.gl-action__label { font-weight: 600; } .gl-action__effect { grid-column: 1; font-size: 13px; color: var(--fg-muted); }
-.gl-action__cost { grid-row: 1 / span 2; white-space: nowrap; }
+.gl-tab { flex: 1; min-height: 36px; padding: 7px 10px; font: inherit; font-size: 14px;
+  color: var(--fg-muted); background: transparent; border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px); cursor: pointer; }
+.gl-tab:hover { color: var(--fg); }
+.gl-tab.active { color: var(--fg); font-weight: 700; border-color: var(--accent); }
+
+/* One costed action. A <button> in the site/citywide panes, a <div> in the
+   plan pane — the grid is the same either way, so both are `.gl-action`. The
+   COLUMNS are declared on every child: the cost spans two rows, and without
+   an explicit column auto-placement drops it into column 1 and pushes the
+   label to the right of it. */
+.gl-action { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
+  width: 100%; padding: 10px 0; text-align: left; font: inherit; color: inherit;
+  background: transparent; border: 0; border-top: 1px solid var(--border, rgba(0,0,0,.08)); }
+button.gl-action { cursor: pointer; }
+button.gl-action:hover:not(:disabled) { background: var(--bg-elev); }
+button.gl-action:disabled { cursor: default; }
+.gl-action__label { grid-column: 1; font-weight: 600; }
+.gl-action__effect { grid-column: 1; font-size: 13px; color: var(--fg-muted); }
+.gl-action__cost { grid-column: 2; grid-row: 1 / span 2; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* A plan row carries a third cell (Remove), so it declares its own track
+   list — the two-column rule would stack the button on top of the cost. */
+.gl-plan { grid-template-columns: 1fr auto auto; }
+.gl-plan .gl-action__cost { grid-column: 2; grid-row: 1; }
+.gl-plan .gl-remove { grid-column: 3; grid-row: 1; min-width: 0; padding: 6px 12px; }
+.gl-action.is-disabled { opacity: .55; }
 .gl-action.is-disabled .gl-action__label { color: var(--fg-muted); }
 .gl-action__why { grid-column: 1 / -1; font-size: 12px; color: var(--warn); }
 .gl-empty { color: var(--fg-muted); padding: 12px 0; }
+/* Attribution under the help bullets. A game-owned class (nothing vended
+   styles `.help-foot`); it is a <div>, not a <p>, because HELP-STANDARD §3
+   forbids paragraph copy inside the help modal. */
+.help-foot { margin: 12px 0 0; font-size: 12px; color: var(--fg-muted); }
