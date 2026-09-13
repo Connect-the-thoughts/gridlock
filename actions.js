@@ -15,7 +15,9 @@
     clearPerKm: 2.0 * M,   // buy the frontage a built-up widening needs
     clearMin:   0.5 * M,
     turnlane:   2.0 * M,   // rebuild one signalised approach with a turn bay
-    roundabout: 4.0 * M,   // replace a signal with a roundabout
+    roundabout: 2.0 * M,   // replace a signal with a roundabout. Priced level with the
+                           // turn lane deliberately: at $4M nothing in the roads family
+                           // ever won a greedy round, so "roads" was not a strategy.
     coordinate: 1.0 * M,   // adaptive controllers + comms along one corridor
     frequency:  3.0 * M,   // per step: double, then triple, the bus frequency
     fare1:      2.0 * M,   // half fare

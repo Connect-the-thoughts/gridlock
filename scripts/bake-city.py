@@ -111,6 +111,15 @@ def name_of(datas):
     return parent_class([v for d in datas for v in values(d.get('highway'))]).capitalize() + ' road'
 
 
+PLACEHOLDER_NAMES = {c.capitalize() + ' road' for c in CLASS_ORDER}
+
+
+def is_placeholder(name):
+    """name_of()'s last resort is a class label, not a street. It is not a name a
+    player can be shown, and it is not a name two links can be grouped by."""
+    return name in PLACEHOLDER_NAMES
+
+
 def norm_name(s):
     return re.sub(r'[^a-z0-9]+', ' ', (s or '').lower()).strip()
 
@@ -150,8 +159,8 @@ def control_lookup(raw):
             t = 'signal'
         elif osmid in roundabout_nodes:
             t = 'roundabout'
-        elif hw in ('stop', 'give_way'):
-            t = 'stop' if hw == 'stop' else 'none'
+        elif hw == 'stop':
+            t = 'stop'
         else:
             t = 'none'
         pts.append((float(row.geometry.x), float(row.geometry.y)))
@@ -292,6 +301,43 @@ def gravity(prod, attr, minutes):
     return np.round(od, 1)
 
 
+# ── proposals: endpoints are PLACES, node ids are derived ────────────────────
+def repoint_proposals(cid, nodes, to_xy, cx, cy):
+    """Node ids are an artefact of the bake — they renumber whenever the network
+    moves. So the proposals are authored against places: `_at` carries the two
+    endpoints as [lat, lon] and every bake re-derives the link's `from`/`to` and its
+    drawn geometry from those. Nothing in that file is a hand-maintained node id,
+    which is what used to go stale silently. `lengthM` stays authored: it is the
+    alignment's real length, deliberately longer than the straight chord."""
+    path = ROOT / 'cities' / f'{cid}.proposals.json'
+    if not path.exists():
+        return []
+    props = json.loads(path.read_text())
+    lines = []
+    for pr in props:
+        at = pr.get('_at')
+        assert at and len(at) == 2, f"proposal {pr['id']}: _at needs two [lat, lon] endpoints"
+        assert len(pr['links']) == 1, f"proposal {pr['id']}: re-pointing handles one link per proposal"
+        ends = []
+        for lat, lon in at:
+            X, Y = to_xy.transform(lon, lat)
+            X, Y = X - cx, Y - cy
+            n = min(nodes, key=lambda n: (math.hypot(n['x'] - X, n['y'] - Y), n['id']))
+            off = math.hypot(n['x'] - X, n['y'] - Y)
+            assert off <= 300.0, (f"proposal {pr['id']}: endpoint {lat},{lon} is {off:.0f} m from the "
+                                  f"nearest baked node — re-check _at against the map")
+            ends.append((n, off))
+        L = pr['links'][0]
+        L['from'], L['to'] = ends[0][0]['id'], ends[1][0]['id']
+        L['xy'] = [[ends[0][0]['x'], ends[0][0]['y']], [ends[1][0]['x'], ends[1][0]['y']]]
+        chord = math.hypot(L['xy'][1][0] - L['xy'][0][0], L['xy'][1][1] - L['xy'][0][1])
+        lines.append(f"   {pr['id']}: nodes {L['from']}↔{L['to']} "
+                     f"(snapped {ends[0][1]:.0f} m / {ends[1][1]:.0f} m; "
+                     f"chord {chord:.0f} m vs authored {L['lengthM']:.0f} m)")
+    path.write_text(json.dumps(props, indent=2, ensure_ascii=False) + '\n')
+    return lines
+
+
 # ── main ─────────────────────────────────────────────────────────────────────
 def main(cid):
     c = CFG[cid]
@@ -335,7 +381,7 @@ def main(cid):
     H = nx.Graph()
     H.add_nodes_from(n for u, v, _o, _e in keep for n in (u, v))
     H.add_edges_from((u, v) for u, v, _o, _e in keep)
-    biggest = max(nx.connected_components(H), key=lambda s: (len(s), min(s)))
+    biggest = max(nx.connected_components(H), key=lambda s: (len(s), -min(s)))
     keep = [t for t in keep if t[0] in biggest and t[1] in biggest]
     D = nx.DiGraph()
     D.add_nodes_from(n for u, v, _o, _e in keep for n in (u, v))
@@ -370,7 +416,7 @@ def main(cid):
         if geoms:
             btree = STRtree(geoms)
 
-    links = []
+    links, is_ramp = [], []
     for u, v, ow, es in keep:
         datas = [d for _u, _v, _k, d in es]
         cls = parent_class([x for d in datas for x in values(d.get('highway'))])
@@ -393,10 +439,37 @@ def main(cid):
         poly = geom.simplify(5.0)
         xy = [[round(px - cx, 1), round(py - cy, 1)] for px, py in poly.coords]
         bridge = any(flag_any(d.get('bridge')) for d in datas)
+        is_ramp.append(any('_link' in str(h) for d in datas for h in values(d.get('highway'))))
         links.append({'id': len(links), 'from': nid[u], 'to': nid[v], 'name': name_of(datas),
                       'cls': cls, 'lanes': lanes, 'oneway': bool(ow), 'kmh': int(kmh),
                       'lengthM': round(length, 1), 'capacityVph': CAP[cls] * lanes,
                       'builtUp': bool(built), 'xy': xy, 'bridge': bool(bridge)})
+
+    ramp = {i for i, r in enumerate(is_ramp) if r}
+
+    # ── names: a slip road inherits the road it serves ───────────────────────
+    # OSM gives ramps neither `name` nor `ref` (checked: all 23 of Charlottetown's
+    # placeholder-named links are *_link, and none carries a ref), so name_of()
+    # falls through to a class label and the player is offered "Add a lane @ Trunk
+    # road". A ramp belongs to the road it leaves, so it takes that road's name.
+    # Highest class wins — a motorway_link between Cornwall Road and the TCH is a
+    # TCH ramp — and ties break lexicographically, so nothing depends on iteration
+    # order.
+    by_node = defaultdict(list)
+    for L in links:
+        by_node[L['from']].append(L)
+        by_node[L['to']].append(L)
+    renamed = 0
+    for L in links:
+        if L['id'] not in ramp or not is_placeholder(L['name']):
+            continue
+        near = sorted({(CLASS_ORDER.index(M['cls']), M['name'])
+                       for n in (L['from'], L['to']) for M in by_node[n]
+                       if M['id'] not in ramp and not is_placeholder(M['name'])})
+        if near:
+            L['name'] = near[0][1] + ' ramp'
+            renamed += 1
+    unnamed = sum(1 for L in links if is_placeholder(L['name']))
 
     node_xy = np.array([[n['x'], n['y']] for n in nodes], dtype=float)
 
@@ -456,6 +529,23 @@ def main(cid):
               'productions': round(float(productions[i]), 1),
               'attractions': round(float(attractions[i]), 1)} for i in range(nz)]
 
+    # ── zone names: the nearest real street, not "Zone 7" ────────────────────
+    # The player meets these in "Park-and-ride @ <zone>", where a number says
+    # nothing. Each zone takes the nearest named street (ramps and class labels
+    # excluded); a street a nearer zone already took falls through to the next
+    # one, so no two zones wear the same label and the numbering never comes back
+    # except as a last resort.
+    streets = [(LineString(L['xy']), L['name']) for L in links
+               if L['id'] not in ramp and not is_placeholder(L['name'])]
+    taken_names = set()
+    for z in zones:
+        pt = Point(float(cent_local[z['id']][0]), float(cent_local[z['id']][1]))
+        for _d, nm in sorted((g.distance(pt), nm) for g, nm in streets):
+            if nm not in taken_names:
+                taken_names.add(nm)
+                z['name'] = 'near ' + nm
+                break
+
     # ── od: doubly-constrained gravity over free-flow minutes ────────────────
     T = nx.DiGraph()
     T.add_nodes_from(range(len(nodes)))
@@ -486,7 +576,10 @@ def main(cid):
     # corridors: maximal chains of ≥ 3 consecutive signal nodes along one named road
     by_name = defaultdict(list)
     for L in links:
-        by_name[L['name']].append(L)
+        # Grouping by a class label would invent one corridor out of every unnamed
+        # link in the city at once, so a placeholder name groups with nothing.
+        if not is_placeholder(L['name']):
+            by_name[L['name']].append(L)
     corridors = []
     for nm in sorted(by_name):
         adj = defaultdict(list)
@@ -514,16 +607,27 @@ def main(cid):
     wanted = [norm_name(s) for s in c['transitCorridorRoads']]
     corridor_nodes = set()
     for L in links:
+        # A bus route does not run up a slip road. This matters now that ramps
+        # inherit their road's NAME: the substring match below would otherwise pull
+        # every Trans-Canada ramp into the transit corridor.
+        if L['id'] in ramp:
+            continue
         ln = norm_name(L['name'])
         if any(w and (w == ln or w in ln) for w in wanted):
             corridor_nodes.add(L['from'])
             corridor_nodes.add(L['to'])
     corridor_node_ids = sorted(corridor_nodes)
 
-    top_zone = int(np.argmax(attractions))
+    # A park-and-ride is a lot you leave the car at on the way IN, so the distance
+    # that matters is to the trip's destination — the primary attractor from the
+    # config (attractors are sorted by weight, so att_xy[0] is downtown). Measuring
+    # from the top attraction ZONE instead put the anchor wherever k-means happened
+    # to pile up jobs — West Royalty, 5 km out — and shipped lots 1.6 km from the
+    # centre of town.
+    downtown_local = downtown - np.array([cx, cy])
     park_ride = sorted(z['id'] for z in zones
                        if z['node'] in corridor_nodes
-                       and math.dist(tuple(cent_local[z['id']]), tuple(cent_local[top_zone])) > PARK_RIDE_MIN_M)
+                       and math.dist(tuple(cent_local[z['id']]), tuple(downtown_local)) > PARK_RIDE_MIN_M)
 
     # ── meta ─────────────────────────────────────────────────────────────────
     per_cap = float(c.get('budgetPerCapita', 250))
@@ -533,6 +637,7 @@ def main(cid):
                  'population': c['population'], 'bbox': b,
                  'centre': {'lat': (b['south'] + b['north']) / 2, 'lon': (b['west'] + b['east']) / 2},
                  'crs': str(crs), 'budget': int(budget), 'baselineDelayVehH': 0,
+                 'seededFrom': seeded_from,
                  'source': 'Map data © OpenStreetMap contributors, ODbL'},
         'nodes': nodes, 'links': links, 'zones': zones, 'od': od.tolist(),
         'sites': {'widenable': widenable, 'turnLane': turn_lane, 'roundabout': roundabout,
@@ -553,6 +658,8 @@ def main(cid):
         missing = [j for j in range(nz) if zone_node[j] not in reach]
         assert not missing, f'zone {i} cannot reach zones {missing}'
 
+    prop_lines = repoint_proposals(cid, nodes, to_xy, cx, cy)
+
     out = ROOT / 'cities' / f'{cid}.json'
     out.write_text(json.dumps(city, separators=(',', ':')))
     base = float(subprocess.check_output(
@@ -564,6 +671,11 @@ def main(cid):
           f"{len(city['nodes'])} nodes, {len(city['zones'])} zones, baseline {base:.2f} veh·h, "
           f"budget ${city['meta']['budget'] / 1e6:.1f}M")
     print(f"   zones seeded from: {seeded_from}")
+    print(f"   names: {renamed} ramps took the road they serve; {unnamed} links still unnamed")
+    if prop_lines:
+        print("   proposals re-pointed from _at:")
+        for line in prop_lines:
+            print(line)
     print(f"   sites: {len(widenable)} widenable, {len(turn_lane)} turn-lane, {len(roundabout)} roundabout, "
           f"{len(corridors)} corridors, {len(park_ride)} park-and-ride; "
           f"{len(corridor_node_ids)} transit-corridor nodes")

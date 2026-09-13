@@ -32,7 +32,7 @@ test('costs: the price list, per unit and per km; fee is 5% of budget', () => {
   assert.equal(A.costOf(c, { action: 'lane', site: 0 }), 4e6);      // $4M/km, rounded to $100k
   assert.equal(A.costOf(c, { action: 'clear', site: 0 }), 2e6);     // $2M/km
   assert.equal(A.costOf(c, { action: 'turnlane', site: 1 }), 2e6);
-  assert.equal(A.costOf(c, { action: 'roundabout', site: 1 }), 4e6);
+  assert.equal(A.costOf(c, { action: 'roundabout', site: 1 }), 2e6);
   assert.equal(A.costOf(c, { action: 'coordinate', site: 'c1' }), 1e6);
   assert.equal(A.costOf(c, { action: 'frequency', site: null, step: 1 }), 3e6);
   assert.equal(A.costOf(c, { action: 'frequency', site: null, step: 2 }), 3e6);

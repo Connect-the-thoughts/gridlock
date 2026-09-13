@@ -3,7 +3,17 @@
     "id": "hillsborough-2",
     "name": "Second Hillsborough crossing (Stratford ↔ Riverside Dr)",
     "cost": 80000000,
-    "_where": "Stratford Trans-Canada Highway at Bunbury Road = node 164 @ 46.23399,-63.10229; Riverside Drive at the Exhibition Drive roundabout = node 152 @ 46.24782,-63.11197",
+    "_where": "Stratford Trans-Canada Highway at Bunbury Road ↔ Riverside Drive at the Exhibition Drive roundabout",
+    "_at": [
+      [
+        46.23399,
+        -63.10229
+      ],
+      [
+        46.24782,
+        -63.11197
+      ]
+    ],
     "newNodes": [],
     "links": [
       {
@@ -31,7 +41,17 @@
     "id": "route1-bypass-ext",
     "name": "Route 1 bypass extension (Cornwall ↔ North River Rd)",
     "cost": 45000000,
-    "_where": "Trans-Canada Highway at the Cornwall bypass end = node 16 @ 46.24999,-63.21110; North River Road at Beach Grove Road = node 54 @ 46.25719,-63.15364",
+    "_where": "Trans-Canada Highway at the Cornwall bypass end ↔ North River Road at Beach Grove Road",
+    "_at": [
+      [
+        46.24999,
+        -63.2111
+      ],
+      [
+        46.25719,
+        -63.15364
+      ]
+    ],
     "newNodes": [],
     "links": [
       {
@@ -59,7 +79,17 @@
     "id": "brackley-connector",
     "name": "Brackley Point Rd ↔ Capital Dr connector",
     "cost": 18000000,
-    "_where": "Brackley Point Road at the Arterial Highway = node 104 @ 46.27497,-63.13054; Capital Drive west of Lower Malpeque Road = node 50 @ 46.26468,-63.15573",
+    "_where": "Brackley Point Road at the Arterial Highway ↔ Capital Drive west of Lower Malpeque Road",
+    "_at": [
+      [
+        46.27497,
+        -63.13054
+      ],
+      [
+        46.26468,
+        -63.15573
+      ]
+    ],
     "newNodes": [],
     "links": [
       {
@@ -87,7 +117,17 @@
     "id": "riverside-ext",
     "name": "Riverside Dr extension to Mount Edward Rd",
     "cost": 22000000,
-    "_where": "Riverside Drive north end at the Trunk road junction = node 156 @ 46.26459,-63.11046; Mount Edward Road at Oak Drive = node 92 @ 46.26628,-63.13735",
+    "_where": "Riverside Drive north end at the Trunk road junction ↔ Mount Edward Road at Oak Drive",
+    "_at": [
+      [
+        46.26459,
+        -63.11046
+      ],
+      [
+        46.26628,
+        -63.13735
+      ]
+    ],
     "newNodes": [],
     "links": [
       {

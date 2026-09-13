@@ -2,7 +2,9 @@
 // Is this city a puzzle? Greedy delay-per-dollar solver + the three gates (spec §6):
 //   1. ceiling            — the best greedy plan removes ≤ 60% of the delay
 //   2. diversity          — ≥ 2 of the three STRATEGIES (transit / signals / roads) can be
-//                           banned outright and greedy still lands within 5 points
+//                           banned outright and greedy still lands within 5 points. A ban
+//                           that takes nothing out of the greedy plan proves nothing and
+//                           does not count.
 //   3. no dominant action — the best SINGLE action is worth ≤ a third of the greedy plan
 // Exits 1 if any gate fails.
 import { createRequire } from 'node:module';
@@ -53,6 +55,13 @@ const CATEGORIES = {
 };
 /* A ban is by ACTION, so it has to see through the lane+clear compound. */
 function banned(bans, c) { return expand(c).some((it) => bans.has(it.action)); }
+/* …and a ban the greedy plan never felt is a no-op: if greedy bought nothing from the
+   category, the "alternative" it produces is the SAME plan, and counting it would let a
+   city claim a strategy it does not actually offer. */
+function bites(cat, picks) {
+  const bans = new Set(CATEGORIES[cat]);
+  return picks.some((c) => banned(bans, c));
+}
 
 /* Eligibility of a compound is checked against the plan it would be appended to,
    item by item — Add a lane is only legal once its Clear land is in front of it. */
@@ -167,7 +176,10 @@ for (const id of (process.argv[2] ? [process.argv[2]] : poolIds())) {
   const cats = Object.keys(CATEGORIES);
   note(`${id}: ${cats.length} category-banned plans…\n`);
   const raw = await Promise.all(cats.map((cat) => runBanned(id, cat)));
-  const alts = cats.map((cat, i) => ({ cat, ...raw[i], counts: raw[i].pct >= g.pct - 5 }));
+  const alts = cats.map((cat, i) => {
+    const noop = !bites(cat, g.picks);
+    return { cat, ...raw[i], noop, counts: !noop && raw[i].pct >= g.pct - 5 };
+  });
   const diverse = alts.filter((a) => a.counts).length;
   const gate1 = g.pct <= 60, gate2 = diverse >= 2, gate3 = topSingle.pct <= g.pct / 3;
   console.log(`\n${city.meta.name}: budget $${(budget / 1e6).toFixed(1)}M, baseline ${baseline.toFixed(1)} veh·h`);
@@ -179,7 +191,8 @@ for (const id of (process.argv[2] ? [process.argv[2]] : poolIds())) {
               ` (within 5 points of ${g.pct.toFixed(1)}%)`);
   for (const a of alts) {
     console.log(`    ${a.counts ? '✓' : '✗'} no ${a.cat} (${CATEGORIES[a.cat].join(', ')}): ` +
-                `${a.pct.toFixed(1)}% in ${a.n} actions ($${(a.spent / 1e6).toFixed(1)}M)`);
+                `${a.pct.toFixed(1)}% in ${a.n} actions ($${(a.spent / 1e6).toFixed(1)}M)` +
+                (a.noop ? '  (no-op ban, not counted — greedy bought none of these)' : ''));
   }
   console.log(`  gates: ceiling ${gate1 ? 'ok' : 'FAIL'} (${g.pct.toFixed(1)} ≤ 60) · ` +
               `diversity ${gate2 ? 'ok' : 'FAIL'} (${diverse} ≥ 2) · ` +

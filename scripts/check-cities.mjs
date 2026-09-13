@@ -36,5 +36,9 @@ for (const id of ['_tutorial', ...poolIds()]) {
   // baseline reproduces bit-for-bit
   const s = E.solve(city, []);
   if (s.baselineDelayVehH !== city.meta.baselineDelayVehH) fail(id, `baseline ${s.baselineDelayVehH} ≠ stored ${city.meta.baselineDelayVehH} — re-bake or update meta`);
-  console.log(`ok   ${id}: ${city.links.length} links, ${city.zones.length} zones, baseline ${s.baselineDelayVehH.toFixed(2)} veh·h, budget $${(city.meta.budget / 1e6).toFixed(1)}M`);
+  // meta.seededFrom records which zone-seeding path the bake took. It is provenance:
+  // a city seeded from the building-count fallback has coarser zones than one seeded
+  // from landuse polygons, and that is worth seeing without re-reading the bake log.
+  console.log(`ok   ${id}: ${city.links.length} links, ${city.zones.length} zones, baseline ${s.baselineDelayVehH.toFixed(2)} veh·h, budget $${(city.meta.budget / 1e6).toFixed(1)}M`
+              + (city.meta.seededFrom ? `\n     zones seeded from ${city.meta.seededFrom}` : ''));
 }
