@@ -1,0 +1,20 @@
+# Deploy to GitHub Pages — the arcade's ONE deploy workflow, called from the hub.
+# Canonical body: connect-the-thoughts.github.io/.github/workflows/pages-reusable.yml
+# (checkout → optional scripts/ci.sh gate → optional npm build → publish dist/ or the
+# checkout). Nothing game-specific belongs here; ci.sh is the repo-owned gate.
+name: Deploy to GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  pages:
+    uses: Connect-the-thoughts/connect-the-thoughts.github.io/.github/workflows/pages-reusable.yml@main
+    secrets: inherit
