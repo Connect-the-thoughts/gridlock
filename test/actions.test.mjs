@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { toyCity } from './fixtures.mjs';
+import { toyCity } from './.fixtures.mjs';
 const require = createRequire(import.meta.url);
 const A = require('../actions.js');
 
@@ -24,10 +24,30 @@ test('eligibility: each rule has a yes and a no', () => {
   assert.equal(A.eligible(c, [], 'parkride', 1), 'no transit corridor here');
 });
 
-test('costs: lane is $4M/km rounded to $100k; fee is 5% of budget', () => {
-  const c = toyCity();
-  assert.equal(A.costOf(c, { action: 'lane', site: 0 }), 4e6);
-  assert.equal(A.costOf(c, { action: 'fare', site: null, step: 2 }), 3e6);
+// The price list is a balance instrument (scripts/balance-report.mjs is what rules on
+// it), so pin the numbers as literals here: a price move has to be a deliberate edit
+// in two places, not a silent side effect of touching actions.js.
+test('costs: the price list, per unit and per km; fee is 5% of budget', () => {
+  const c = toyCity();                                    // every toy link is exactly 1 km
+  assert.equal(A.costOf(c, { action: 'lane', site: 0 }), 4e6);      // $4M/km, rounded to $100k
+  assert.equal(A.costOf(c, { action: 'clear', site: 0 }), 2e6);     // $2M/km
+  assert.equal(A.costOf(c, { action: 'turnlane', site: 1 }), 2e6);
+  assert.equal(A.costOf(c, { action: 'roundabout', site: 1 }), 4e6);
+  assert.equal(A.costOf(c, { action: 'coordinate', site: 'c1' }), 1e6);
+  assert.equal(A.costOf(c, { action: 'frequency', site: null, step: 1 }), 3e6);
+  assert.equal(A.costOf(c, { action: 'frequency', site: null, step: 2 }), 3e6);
+  assert.equal(A.costOf(c, { action: 'fare', site: null, step: 1 }), 2e6);
+  assert.equal(A.costOf(c, { action: 'fare', site: null, step: 2 }), 4e6);
+  assert.equal(A.costOf(c, { action: 'parkride', site: 0 }), 2e6);
   // 5e6 × 5% = $250k sits on a rounding tie; JS Math.round rounds .5 up, so $300k.
   assert.equal(A.consultantFee(c), 3e5);
+});
+
+// A short link must not price a widening at pocket change: the floors are what keep
+// a 100 m stub from being a free win the greedy solver hoovers up.
+test('costs: short links hit the lane/clear floors', () => {
+  const c = toyCity();
+  c.links[0].lengthM = 120;                               // 0.12 km
+  assert.equal(A.costOf(c, { action: 'lane', site: 0 }), A.COST.laneMin);
+  assert.equal(A.costOf(c, { action: 'clear', site: 0 }), A.COST.clearMin);
 });

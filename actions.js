@@ -6,25 +6,42 @@
   var M = 1e6;
   function km(city, linkId) { return city.links[linkId].lengthM / 1000; }
 
+  /* THE PRICE LIST. These are balance constants as much as they are dollars:
+     scripts/balance-report.mjs is what says whether a city is still a puzzle after
+     a change here, so re-run `npm run balance` with any edit to this block. */
+  var COST = {
+    lanePerKm:  4.0 * M,   // widen one link, one more lane each way
+    laneMin:    1.0 * M,   // …but no widening is a rounding error: design + mobilisation
+    clearPerKm: 2.0 * M,   // buy the frontage a built-up widening needs
+    clearMin:   0.5 * M,
+    turnlane:   2.0 * M,   // rebuild one signalised approach with a turn bay
+    roundabout: 4.0 * M,   // replace a signal with a roundabout
+    coordinate: 1.0 * M,   // adaptive controllers + comms along one corridor
+    frequency:  3.0 * M,   // per step: double, then triple, the bus frequency
+    fare1:      2.0 * M,   // half fare
+    fare2:      4.0 * M,   // free
+    parkride:   2.0 * M    // one park-and-ride lot on a transit corridor
+  };
+
   var TABLE = [
     { id: 'lane',      label: 'Add a lane',           scope: 'link',     effect: 'One more lane each way.',
-      costOf: function (c, s) { return Math.round(4 * M * km(c, s) / 1e5) * 1e5; } },
+      costOf: function (c, s) { return Math.max(COST.laneMin, Math.round(COST.lanePerKm * km(c, s) / 1e5) * 1e5); } },
     { id: 'clear',     label: 'Clear land',           scope: 'link',     effect: 'Makes room to widen a built-up road.',
-      costOf: function (c, s) { return Math.round(2 * M * km(c, s) / 1e5) * 1e5; } },
+      costOf: function (c, s) { return Math.max(COST.clearMin, Math.round(COST.clearPerKm * km(c, s) / 1e5) * 1e5); } },
     { id: 'turnlane',  label: 'Dedicated turn lane',  scope: 'node',     effect: 'Turning traffic stops blocking the through lane.',
-      costOf: function () { return 0.8 * M; } },
+      costOf: function () { return COST.turnlane; } },
     { id: 'roundabout',label: 'Roundabout',           scope: 'node',     effect: 'Replaces the signal. Faster until it fills.',
-      costOf: function () { return 3 * M; } },
+      costOf: function () { return COST.roundabout; } },
     { id: 'coordinate',label: 'Signal coordination',  scope: 'corridor', effect: 'Greens along the corridor line up.',
-      costOf: function () { return 0.2 * M; } },
+      costOf: function () { return COST.coordinate; } },
     { id: 'newroad',   label: 'New road',             scope: 'proposal', effect: 'Builds the corridor.',
       costOf: function (c, s) { return c.proposals[s].cost; } },
     { id: 'frequency', label: 'More buses',           scope: 'city', steps: 2, effect: 'Buses run twice, then three times as often.',
-      costOf: function () { return 2 * M; } },
+      costOf: function () { return COST.frequency; } },
     { id: 'fare',      label: 'Cheaper fares',        scope: 'city', steps: 2, effect: 'Half fare, then free.',
-      costOf: function (c, s, step) { return step === 1 ? 1.5 * M : 3 * M; } },
+      costOf: function (c, s, step) { return step === 1 ? COST.fare1 : COST.fare2; } },
     { id: 'parkride',  label: 'Park-and-ride',        scope: 'zone',     effect: 'A third of this area rides in.',
-      costOf: function () { return 1.5 * M; } }
+      costOf: function () { return COST.parkride; } }
   ];
   var BY_ID = {}; TABLE.forEach(function (a) { BY_ID[a.id] = a; });
 
@@ -82,5 +99,5 @@
   function totalCost(city, plan) { return plan.reduce(function (s, p) { return s + costOf(city, p); }, 0); }
   function consultantFee(city) { return Math.round(city.meta.budget * 0.05 / 1e5) * 1e5; }
 
-  return { TABLE: TABLE, BY_ID: BY_ID, eligible: eligible, costOf: costOf, totalCost: totalCost, consultantFee: consultantFee };
+  return { TABLE: TABLE, BY_ID: BY_ID, COST: COST, eligible: eligible, costOf: costOf, totalCost: totalCost, consultantFee: consultantFee };
 }));

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { toyCity } from './fixtures.mjs';
+import { toyCity } from './.fixtures.mjs';
 const require = createRequire(import.meta.url);
 const E = require('../engine.js');
 
