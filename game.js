@@ -115,7 +115,6 @@ function paint() {
   /* Standard control 3: the board's SUBJECT, no verb, no period. */
   $('playSub').textContent = city.meta.name;
   $('submitBtn').disabled = submitted || recapMode;
-  $('planBtn').disabled = !city;
 }
 
 function setStatus(html) { $('status').innerHTML = html || ''; }
@@ -174,25 +173,41 @@ function addAction(action, site, step) {
   renderSheet();
 }
 
+/* THE PLAN WITHOUT ONE ITEM — a fresh array of fresh items, so a caller that
+   is only ASKING (the results card's leave-one-out) cannot renumber the live
+   plan under itself.
+
+   Two rules, and they are the reason this is a function rather than two
+   copies. Clear land is a PREREQUISITE, not an improvement: dropping it drops
+   the widening it paid for, or the plan holds a lane the rules forbid. And the
+   two stepped citywide actions are priced BY STEP (fare 2 costs $4M), so what
+   is left re-numbers, or a lone fare step keeps the second step's price.
+
+   Remove and the results card MUST agree about what "without this" means.
+   They did not: the card's leave-one-out dropped `clear` on its own, which
+   `applyPlan` treats as a no-op, so Clear land was reported at +0.0% while its
+   lane — unbuyable without it — was credited with the whole pair's gain. */
+function planWithout(src, idx) {
+  var it = src[idx];
+  var out = src.slice(0, idx).concat(src.slice(idx + 1));
+  if (it.action === 'clear') {
+    out = out.filter(function (p) {
+      return !(p.action === 'lane' && p.site === it.site && city.links[it.site].builtUp);
+    });
+  }
+  out = out.map(function (p) { return { action: p.action, site: p.site, step: p.step }; });
+  ['frequency', 'fare'].forEach(function (id) {
+    var k = 0;
+    out.forEach(function (p) { if (p.action === id) p.step = ++k; });
+  });
+  return out;
+}
+
 function removeAction(idx) {
   if (submitted || recapMode) return;
   var it = plan[idx];
   if (!it) return;
-  plan.splice(idx, 1);
-  /* Clear land is a PREREQUISITE, not an improvement: dropping it drops the
-     widening it paid for, or the plan would hold a lane the rules forbid. */
-  if (it.action === 'clear') {
-    plan = plan.filter(function (p) {
-      return !(p.action === 'lane' && p.site === it.site && city.links[it.site].builtUp);
-    });
-  }
-  /* The two stepped citywide actions are priced BY STEP (fare 2 costs $4M),
-     so removing one re-numbers the rest — otherwise a lone fare step keeps
-     the second step's price. */
-  ['frequency', 'fare'].forEach(function (id) {
-    var k = 0;
-    plan.forEach(function (p) { if (p.action === id) p.step = ++k; });
-  });
+  plan = planWithout(plan, idx);
   setStatus('Removed <b>' + esc(A.BY_ID[it.action].label) + '</b>. ' +
     money(A.costOf(city, it)) + ' back in the budget.');
   recompute();
@@ -359,11 +374,18 @@ function submit() {
       eligible = true;
       /* NO `hints` KEY. The metric has no hint term to describe — see the
          header. An entry that carried one would make the shared score column
-         compose a "+Nh" mark that misdescribes the number beside it. */
+         compose a "+Nh" mark that misdescribes the number beside it.
+
+         `oncePerLane` upserts on (date, lane) instead of appending. The run
+         ledger above already guards the second write, but it is a localStorage
+         write in a try/catch — a quota failure or a private-mode throw would
+         leave `run.result` unset and let a second submit append a duplicate
+         row, which `historyStats().solves` counts as two solves. Lower `value`
+         wins, which is this metric's direction. */
       LB.recordHistory(GAME, {
         date: SEED.dailyDateKey(), difficulty: LANE, epoch: LB_EPOCH,
         value: value, pct: pct, city: city.meta.id,
-      });
+      }, { oncePerLane: true });
       LB.reportStats(GAME);
     }
   }
@@ -377,9 +399,16 @@ function submit() {
 /* What did the most: each applied action's LEAVE-ONE-OUT contribution to the
    plan as submitted. One extra solve per action (~40ms each), paid once. */
 function topThree() {
-  var rows = plan.map(function (p, i) {
-    var rest = plan.slice(0, i).concat(plan.slice(i + 1));
-    return { p: p, gain: solved.pct - E.solve(city, rest).pct };
+  var rows = [];
+  plan.forEach(function (p, i) {
+    /* A clear that bought a widening has no line of its own: whatever it is
+       worth is worth exactly what the lane is worth, and two identical rows
+       would crowd a real third action off a three-row list. The lane's row
+       carries the pair. */
+    if (p.action === 'clear' && plan.some(function (q) {
+      return q.action === 'lane' && q.site === p.site && city.links[p.site].builtUp;
+    })) return;
+    rows.push({ p: p, gain: solved.pct - E.solve(city, planWithout(plan, i)).pct });
   });
   rows.sort(function (a, b) { return b.gain - a.gain; });
   return rows.slice(0, 3).map(function (r) {
@@ -432,8 +461,11 @@ function showResults(pct, value, eligible) {
     });
   }
   if (dailyComplete && window.ArcadePlacements) {
+    /* `diffLabel` is NOT optional: renderPlacements destructures it and reads
+       `diffLabel[d]` for every lane, so omitting it throws for any player who
+       has a handle — the only players it renders for at all. */
     window.ArcadePlacements.renderPlacements({
-      gameSlug: GAME, epoch: LB_EPOCH, lanes: [LANE],
+      gameSlug: GAME, epoch: LB_EPOCH, lanes: [LANE], diffLabel: { daily: 'Daily' },
       day: SEED.dailyDateKey(), handle: getHandle(),
     });
   }
@@ -472,9 +504,15 @@ function fetchCity(id) {
 
 function dayNumber() { return SEED.dailyDayNumber(SEED.dailyDateKey()); }
 function cityIdForToday() {
+  /* EVERY NEW ERA PASSES `guard: floor(poolLen / 2)` (arcade-daily-rotation.js,
+     2026-09-17) — the widest seam the repair can always satisfy, so nothing
+     returns inside half its pool. At a pool of one it is 0, exactly what the
+     pre-rule default computes, so today's deal does not move; it starts
+     mattering the day a new era grows the pool. */
   return POOL[ROT.rotationIndex({
     game: GAME, tier: LANE, poolLen: POOL.length,
     day: dayNumber(), fromDay: ERA_FROM_DAY,
+    guard: Math.floor(POOL.length / 2),
   })];
 }
 
@@ -543,10 +581,11 @@ function dealDaily() {
     /* deal identity = the city AND its baseline, so a re-bake that moves the
        numbers invalidates a snapshot scored against the old ones. */
     var saved = resume.begin({ lane: LANE, mode: 'daily', deal: id + ':' + city.meta.baselineDelayVehH });
-    recompute();
-    if (saved && saved.state) resume.applyState(saved.state);
+    /* The documented handshake: begin() deals the run, applyState replays the
+       snapshot through `restore`, and `restore` repaints. Only a run with
+       nothing to restore needs the first paint done here. */
+    if (!(saved && saved.state && resume.applyState(saved.state))) { recompute(); renderSheet(); }
     if (!plan.length) setStatus('Rush hour in ' + esc(city.meta.name) + '. ' + congestionLine());
-    renderSheet();
   }).catch(failed);
 }
 
@@ -633,6 +672,12 @@ function tutorialLevel() {
 /* Everything the player could still BUY at this link — eligibility and money
    only, no solving. Cheap enough to ask of every link on the board. */
 function candidatesFor(linkId) {
+  /* `applyPlan` APPENDS a built proposal's links to the solved world, so
+     `world.city.links` runs past `city.links` the moment a new road is in the
+     plan. Nothing can be built on one — it is already built, and it is in no
+     `sites` list — and reading `city.links[linkId]` for one is `undefined`,
+     which took the Consultant out with a TypeError inside `suggest()`. */
+  if (linkId == null || linkId >= city.links.length) return [];
   var L = city.links[linkId], cands = [], out = [];
   if (city.sites.widenable.indexOf(linkId) >= 0) {
     cands.push(L.builtUp ? [{ action: 'clear', site: linkId }, { action: 'lane', site: linkId }]
@@ -670,7 +715,11 @@ function linksByDelay() {
   for (i = 0; i < g.arcs.length; i++) {
     d[g.arcs[i].link] += solved.volumes[i] * (solved.times[i] - g.linkT0[i]);
   }
-  for (i = 0; i < d.length; i++) idx.push(i);
+  /* The delay is accumulated over EVERY arc, including a built proposal's, but
+     only the base city's links are ranked: a proposal is already built, so
+     naming it as "the worst road you can still act on" is a fact with no move
+     behind it. */
+  for (i = 0; i < city.links.length; i++) idx.push(i);
   idx.sort(function (a, b) { return d[b] - d[a]; });
   return idx;
 }
@@ -710,23 +759,28 @@ function boot() {
         hints: hintsSpent(), keys: hint ? hint.charged() : [], hinted: hintedLink,
       };
     },
+    /* ALWAYS ends in a repaint, including on the paths that restore nothing —
+       `applyState` is what drives the board after `begin()` (the module's own
+       handshake), so a rejected payload must still leave a painted empty plan
+       rather than a dealt city with blank counters. */
     restore: function (s) {
-      if (!s || !city || s.city !== city.meta.id || !Array.isArray(s.plan)) return;
-      /* Replay the stored plan against THIS build's rules rather than trusting
-         the payload: an item an older build allowed must never restore into a
-         plan this build would refuse to score. */
-      plan = [];
-      s.plan.forEach(function (p) {
-        if (!p || !A.BY_ID[p.action]) return;
-        if (A.eligible(city, plan, p.action, p.site) !== true) return;
-        plan.push({ action: p.action, site: p.site, step: p.step });
-      });
-      ['frequency', 'fare'].forEach(function (id) {
-        var k = 0;
-        plan.forEach(function (p) { if (p.action === id) p.step = ++k; });
-      });
-      if (hint) hint.restore(s.hints || 0, Array.isArray(s.keys) ? s.keys : []);
-      hintedLink = (typeof s.hinted === 'number' && s.hinted < city.links.length) ? s.hinted : null;
+      if (s && city && s.city === city.meta.id && Array.isArray(s.plan)) {
+        /* Replay the stored plan against THIS build's rules rather than
+           trusting the payload: an item an older build allowed must never
+           restore into a plan this build would refuse to score. */
+        plan = [];
+        s.plan.forEach(function (p) {
+          if (!p || !A.BY_ID[p.action]) return;
+          if (A.eligible(city, plan, p.action, p.site) !== true) return;
+          plan.push({ action: p.action, site: p.site, step: p.step });
+        });
+        ['frequency', 'fare'].forEach(function (id) {
+          var k = 0;
+          plan.forEach(function (p) { if (p.action === id) p.step = ++k; });
+        });
+        if (hint) hint.restore(s.hints || 0, Array.isArray(s.keys) ? s.keys : []);
+        hintedLink = (typeof s.hinted === 'number' && s.hinted < city.links.length) ? s.hinted : null;
+      }
       recompute();
       renderSheet();
     },
@@ -748,6 +802,13 @@ function boot() {
     sticky: { epoch: LB_EPOCH, lane: function () { return LANE; } },
     suggest: function () {
       if (!solved || !city) return null;
+      /* The level is teaching one move at a time; the Consultant is not it.
+         Refused HERE rather than through `canHint`, because a false `canHint`
+         swallows the press with nothing to show — and a control that does
+         nothing at all is the stuck state the automate/override rule exists to
+         prevent. A null suggestion charges nothing and routes to `onNothing`,
+         which says what the step is waiting for. */
+      if (tutorialMode) return null;
       if (A.consultantFee(city) > budgetLeft()) return null;
       /* THE FACT HAS TO BE ACTIONABLE. 30 of Charlottetown's 293 links carry
          nothing that can be built on them, and the very worst link is often
@@ -780,11 +841,12 @@ function boot() {
       openSheet('site');
     },
     onNothing: function () {
+      if (tutorialMode) { nudge(); return; }
       setStatus(city && A.consultantFee(city) > budgetLeft()
         ? 'The consultant costs ' + money(A.consultantFee(city)) + ' and you cannot afford one.'
         : 'Nothing left to point at.');
     },
-    canHint: function () { return !!city && !submitted && !recapMode && !tutorialMode; },
+    canHint: function () { return !!city && !submitted && !recapMode; },
     isFinished: function () { return submitted || recapMode; },
     recap: recapResults,
   });
@@ -793,6 +855,12 @@ function boot() {
     resume: resume, toolId: 'restart-btn',
     title: 'Clear the plan — every dollar comes back',
     onRestart: function () {
+      /* `isActive` gates the take-back OFFER, never the wipe — arcade-restart.js
+         calls `onRestart` unconditionally and says so: "a game that must refuse
+         the press entirely still early-returns inside its own onRestart".
+         Without this, Restart erases a submitted plan out from under its own
+         recap, or the scripted board out from under the coach. */
+      if (submitted || recapMode || tutorialMode) { if (tutorialMode) nudge(); return; }
       plan = []; hintedLink = null; selected = null;
       if (hint) hint.reset();
       recompute(); renderSheet();
