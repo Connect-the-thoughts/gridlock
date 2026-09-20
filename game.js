@@ -536,9 +536,14 @@ function onTap(x, y) {
   if (!city || !map || !solved) return;
   var hit = map.hitTest(x, y, city.sites);
   /* hitTest walks the WORLD's link list, which a built `newroad` has grown past
-     the end of city.links. A link id the city cannot name is not a site: drop it
-     rather than hand the drawer an index it will read as undefined. */
-  if (hit && hit.kind === 'link' && hit.id >= city.links.length) hit = null;
+     the end of city.links — and the built road's geometry is the proposal's own,
+     so it shadows the dashed line the drawer used to answer on. An id the city
+     cannot name goes back to the proposal that put it there; the drawer then
+     names the road the player built instead of reading city.links out of range. */
+  if (hit && hit.kind === 'link' && hit.id >= city.links.length) {
+    var wl = solved.world.city.links[hit.id];
+    hit = (wl && wl.proposal != null) ? { kind: 'proposal', id: wl.proposal } : null;
+  }
   if (tutorialMode && tutStep === 0) {
     if (!hit || hit.kind !== 'link' || hit.id !== TUT_LINK) { nudge(); return; }
     selected = hit; paint(); openSheet('site'); tutorial.satisfy();
