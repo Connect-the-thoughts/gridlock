@@ -984,6 +984,20 @@ function boot() {
     b.addEventListener('click', function () { setPane(b.dataset.pane); });
   });
 
+  /* The help modal is the GAME's: arcade-topbar vends the button and
+     arcade-theme routes `?`, `h` and Escape through it, but the open handler is
+     per-game, because only the game knows which overlay is its own. Without
+     this pair the modal is markup no player can reach. */
+  (function () {
+    var modal = $('helpModal'), btn = $('helpButton');
+    function close() { modal.hidden = true; }
+    if (btn) btn.addEventListener('click', function () { modal.hidden = false; });
+    Array.prototype.forEach.call(modal.querySelectorAll('[data-close]'), function (b) {
+      b.addEventListener('click', close);
+    });
+    modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+  }());
+
   /* `--arcade-chrome-v` is published off `[data-arcade-board]` in the markup,
      so there is nothing to register here. */
 
