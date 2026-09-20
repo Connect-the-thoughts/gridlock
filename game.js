@@ -270,7 +270,10 @@ function renderSheet() {
   }
 
   if (pane === 'site') {
-    if (!selected) {
+    /* onTap's link bound, restated where the index is actually read: this is the
+       one place `selected` is dereferenced, and city.links[id] has to exist
+       before the branch below takes a name off it. */
+    if (!selected || (selected.kind === 'link' && selected.id >= city.links.length)) {
       title = 'Here';
       html = '<p class="gl-empty">Tap a road or a marked junction on the map.</p>';
     } else if (selected.kind === 'link') {
@@ -413,7 +416,7 @@ function topThree() {
   rows.sort(function (a, b) { return b.gain - a.gain; });
   return rows.slice(0, 3).map(function (r) {
     return esc(A.BY_ID[r.p.action].label) + ' · ' + esc(siteName(r.p)) +
-      ' <span class="res-vs">' + (r.gain >= 0 ? '+' : '') + r.gain.toFixed(1) + '%</span>';
+      ' <small>' + (r.gain >= 0 ? '+' : '') + r.gain.toFixed(1) + '%</small>';
   }).join('<br>');
 }
 
@@ -441,7 +444,7 @@ function showResults(pct, value, eligible) {
     headline: pct >= 30 ? 'Traffic moves.' : pct >= 10 ? 'Better.' : 'Still jammed.',
     /* The ranked number, in the units every other surface shows. NO
        `hintsUsed`: the Consultant is priced in the budget, not the metric. */
-    statHtml: pct.toFixed(1) + '% <span class="res-vs">of rush-hour delay removed</span>',
+    statHtml: pct.toFixed(1) + '% <small>of rush-hour delay removed</small>',
     subHtml: city.meta.name + ' · ' + money(spent()) + ' of ' + money(city.meta.budget) + ' spent',
     detailHtml: plan.length ? '<b>What did the most</b><br>' + topThree()
       : 'You submitted an empty plan. The city is exactly as you found it.',
@@ -532,6 +535,10 @@ function rebuildMap(c) {
 function onTap(x, y) {
   if (!city || !map || !solved) return;
   var hit = map.hitTest(x, y, city.sites);
+  /* hitTest walks the WORLD's link list, which a built `newroad` has grown past
+     the end of city.links. A link id the city cannot name is not a site: drop it
+     rather than hand the drawer an index it will read as undefined. */
+  if (hit && hit.kind === 'link' && hit.id >= city.links.length) hit = null;
   if (tutorialMode && tutStep === 0) {
     if (!hit || hit.kind !== 'link' || hit.id !== TUT_LINK) { nudge(); return; }
     selected = hit; paint(); openSheet('site'); tutorial.satisfy();
@@ -739,10 +746,10 @@ function boot() {
     format: function (v) { return money(v); },
     note: function () { return city ? money(spent()) + ' spent' : ''; },
   });
-  /* The RANKED metric. Explicit label until arcade-floor.js's METRICS table
-     gains its `gridlock` row (Task 9 step 4) — this string is that row's
-     declared word, Title-cased exactly as declaredLabel() would derive it, so
-     dropping this line once the row lands is a no-op on screen. */
+  /* The RANKED metric. The label is spelled out rather than left to the floor's
+     declared word because the tool vocabulary here is closed: this string is the
+     same noun the results card and the share line use, and naming it once at the
+     counter is what keeps those three surfaces reading as one number. */
   delayCon = MC.createMetricCounter({
     mount: $('delayCounter'), kind: 'tally', label: 'Delay removed',
     format: function (v) { return Number(v).toFixed(1) + '%'; },
@@ -831,8 +838,8 @@ function boot() {
       var L = city.links[s.link];
       setStatus('<b>' + esc(L.name || 'This road') + '</b> is the worst jam you can still act on. ' +
         (s.fix ? 'Best buy here: ' + esc(s.fix) + '.' : 'Nothing left here is affordable — look upstream.') +
-        (info && info.repeat ? ' <span class="res-vs">You already paid for this one.</span>'
-                             : ' <span class="res-vs">Fee ' + money(A.consultantFee(city)) + '.</span>'));
+        (info && info.repeat ? ' <small>You already paid for this one.</small>'
+                             : ' <small>Fee ' + money(A.consultantFee(city)) + '.</small>'));
       recompute();
       /* The fact has a place to land: the drawer opens on the road it named,
          with that road's actions costed. (This is also why arcade-new-card.js
@@ -853,7 +860,7 @@ function boot() {
 
   restart = window.ArcadeRestart.createRestart({
     resume: resume, toolId: 'restart-btn',
-    title: 'Clear the plan — every dollar comes back',
+    title: 'Clear the plan — the budget comes back, the consultant\'s fee does not',
     onRestart: function () {
       /* `isActive` gates the take-back OFFER, never the wipe — arcade-restart.js
          calls `onRestart` unconditionally and says so: "a game that must refuse

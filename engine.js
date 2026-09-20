@@ -157,7 +157,7 @@
         case 'lane': links[p.site].capacityVph = links[p.site].capacityVph * (links[p.site].lanes + 1) / links[p.site].lanes; links[p.site].lanes += 1; break;
         case 'clear': break;                                   // prerequisite only
         case 'turnlane': nodeMult[p.site] *= MULT_TURNLANE; break;
-        case 'roundabout': control[p.site] = 'roundabout'; nodeMult[p.site] = 1; break;  // supersedes any earlier turnlane multiplier
+        case 'roundabout': control[p.site] = 'roundabout'; break;
         case 'coordinate': {
           var corridor = city.sites.corridors.filter(function (c) { return c.id === p.site; })[0];
           if (corridor) corridor.nodes.forEach(function (n) { nodeMult[n] *= MULT_COORD; });
@@ -181,6 +181,13 @@
         default: throw new Error('unknown action ' + p.action);
       }
     }
+    /* A roundabout has no signals: nothing to coordinate, no approach to hold a
+       turn lane. The multiplier is therefore a property of the FINAL control, not
+       of the order the plan was built in — so clear it once every item is applied.
+       Done inside the roundabout case instead, a turn lane or a corridor
+       coordination listed after the roundabout would still discount a junction
+       that no longer has a signal to discount. */
+    for (i = 0; i < control.length; i++) if (control[i] === 'roundabout') nodeMult[i] = 1;
     var wcity = Object.assign({}, city, { nodes: nodes, links: links });
     var graph = buildGraph(wcity);
     return { city: wcity, graph: graph, control: control, nodeMult: nodeMult, headwayMin: headway, fare: fare, prShift: prShift };
