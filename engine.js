@@ -146,11 +146,12 @@
   /* ── plan → world ── */
   var MULT_TURNLANE = 0.6, MULT_COORD = 0.8;
   function applyPlan(city, plan) {
-    var nodes = city.nodes.slice(), links = city.links.map(function (L) { return Object.assign({}, L); });
+    var nodes = city.nodes.slice(), links = city.links.map(function (L) { return Object.assign({}, L); }), i;
     var control = city.nodes.map(function (n) { return n.control; });
-    var nodeMult = new Float64Array(city.nodes.length).fill(1);
+    var nodeMult = [];                                       // one entry per node, grown alongside `nodes`
+    for (i = 0; i < city.nodes.length; i++) nodeMult.push(1);
     var prShift = new Float64Array(city.zones.length);
-    var headway = city.transit.baseHeadwayMin, fare = city.transit.baseFare, freqSteps = 0, i, p;
+    var headway = city.transit.baseHeadwayMin, fare = city.transit.baseFare, freqSteps = 0, p;
     for (i = 0; i < plan.length; i++) {
       p = plan[i];
       switch (p.action) {
@@ -166,7 +167,12 @@
         }
         case 'newroad': {
           var pr = city.proposals[p.site], base = nodes.length, k;
-          for (k = 0; k < pr.newNodes.length; k++) nodes.push(Object.assign({}, pr.newNodes[k], { id: base + k, legs: 2, control: 'none' }));
+          /* control and nodeMult are indexed by node: a pushed junction needs an
+             entry in each, or penaltyOf reads past the end and the score goes NaN. */
+          for (k = 0; k < pr.newNodes.length; k++) {
+            nodes.push(Object.assign({}, pr.newNodes[k], { id: base + k, legs: 2, control: 'none' }));
+            control.push('none'); nodeMult.push(1);
+          }
           for (k = 0; k < pr.links.length; k++) {
             var L = pr.links[k];
             links.push({ id: links.length, from: L.from < 0 ? base + (-L.from - 1) : L.from, to: L.to < 0 ? base + (-L.to - 1) : L.to,

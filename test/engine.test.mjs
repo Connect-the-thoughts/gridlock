@@ -107,6 +107,26 @@ test('newroad proposal: array index wins over an authored newNodes.id', () => {
   assert.equal(world.city.nodes[newNodeIndex].id, newNodeIndex);
 });
 
+test('newroad proposal with new junctions still scores a finite delay', () => {
+  // A pushed node needs a control and a multiplier of its own; without them the
+  // junction penalty reads past the end of both arrays and the score goes NaN.
+  const city = toyCity();
+  city.proposals = [{
+    id: 'p1', name: 'Bypass', cost: 6e6,
+    newNodes: [{ x: 1, y: 1, lat: 0, lon: 0 }],
+    links: [
+      { from: 0, to: -1, cls: 'primary', lanes: 1, kmh: 60, lengthM: 800, oneway: false, xy: [[0,0],[1,1]] },
+      { from: -1, to: 3, cls: 'primary', lanes: 1, kmh: 60, lengthM: 800, oneway: false, xy: [[1,1],[3,0]] }
+    ]
+  }];
+  const world = E.applyPlan(city, [{ action: 'newroad', site: 0 }]);
+  assert.equal(world.control.length, world.city.nodes.length);
+  assert.equal(world.nodeMult.length, world.city.nodes.length);
+  const s = E.solve(city, [{ action: 'newroad', site: 0 }]);
+  assert.ok(Number.isFinite(s.delayVehH), `delayVehH ${s.delayVehH}`);
+  assert.ok(Number.isFinite(s.pct), `pct ${s.pct}`);
+});
+
 test('roundabout supersedes an earlier turnlane multiplier (defense in depth)', () => {
   const city = toyCity();
   city.sites.turnLane = [1]; city.sites.roundabout = [1];
