@@ -154,8 +154,24 @@
   //     — by the time a promise rejects, the boot path has already run. In
   //     practice these are the arcade's own network calls (leaderboard,
   //     badges), which are offline-tolerant by design.
+  //   - a ResizeObserver loop notice. "ResizeObserver loop completed with
+  //     undelivered notifications" (and Chrome's older "loop limit exceeded")
+  //     is not an exception at all: it is the layout engine reporting that a
+  //     measure-then-write observer did not settle within one delivery pass.
+  //     The page has already rendered and is running. WebKit surfaces it as an
+  //     uncaught error targeting `window`, which the rule below would read as
+  //     the parse-time destructure — and on 2026-09-21 that is exactly what
+  //     happened: a completed cornerstone chain on iOS 18.7 showed a board and
+  //     its results card, then had them replaced by this overlay. The loop
+  //     itself was fixed in arcade-results.js, but the classifier is what made
+  //     a cosmetic hiccup look like a dead arcade, in every game at once.
+  //     Blink never delivers this notice to a capture-phase window listener,
+  //     so no amount of desktop testing would have caught it.
+  var RO_LOOP = /^ResizeObserver loop/;
+
   function isFatal(evt) {
     if (evt.type !== 'error') return false;
+    if (RO_LOOP.test(evt.message || '')) return false;
     var t = evt.target;
     if (!t || t === window || t === document) return true; // uncaught exception
     return t.tagName === 'SCRIPT'; // a shared global will be missing
