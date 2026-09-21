@@ -7,18 +7,28 @@
 /* ============================================================
    Connect the Thoughts — shared boot guard.
    Source of truth: connectthethoughts/shared/arcade-boot-guard.js.
-   Never hand-edit a vendored copy — edit here, then
-   `node scripts/sync-shared.mjs --all` (or name the game).
 
-   Classic games destructure vended globals at PARSE TIME
+   THE ONE SHARED FILE A RELEASE DOES NOT SERVE. Everything else in shared/
+   reaches a page from an immutable release through /shared/arcade-loader.js.
+   This cannot: it is what shows a player a way out when the loader itself
+   fails, so it has to already be on the page before anything is fetched. It
+   is INLINED into every page instead, between the
+   `<\!-- arcade:boot-guard:start/end -->` markers.
+
+   Edit here, then run `node scripts/build-shared.mjs`: it rewrites the inline
+   copy in every page that carries the markers, escaping `<\/script` and `<\!--`
+   on the way in. Commit the rewritten index.html in each game repo — a page
+   whose copy has fallen behind is a check-script-tags failure.
+
+   Classic games destructure shared globals at PARSE TIME
    (`var { foo } = window.ArcadeSomething`), so a transient error on any ONE
    shared script — a blocked/503'd file, a stale cache serving a broken
    build — throws before the game ever renders, and the page is a silent
    dead shell: no board, no error, nothing a player can act on.
 
    This is the fix: a tiny self-running script that must be the FIRST
-   <script> tag on the page (before arcade-floor.js and every other vended
-   script). It has no dependencies — it must survive even when everything
+   <script> tag on the page (before the loader tag and every script it
+   writes). It has no dependencies — it must survive even when everything
    after it fails to load — and requires ZERO per-game wiring beyond the
    tag itself.
 
@@ -36,8 +46,9 @@
         `window.ArcadeBootGuard.ready()` — entirely opt-in, no game needs
         to call it for the guard to work.
 
-   Usage: add ONE tag, first in the vended <script> block:
-     <script src="arcade-boot-guard.js?v=..."><\/script>
+   Usage on a NEW page: paste the two marker comments into <head>, immediately
+   after <meta charset>, wrapping one empty <script> element; the build fills
+   it. It must come before the loader tag and before any other script.
    ============================================================ */
 
 (function () {
@@ -147,7 +158,7 @@
     if (evt.type !== 'error') return false;
     var t = evt.target;
     if (!t || t === window || t === document) return true; // uncaught exception
-    return t.tagName === 'SCRIPT'; // vended global will be missing
+    return t.tagName === 'SCRIPT'; // a shared global will be missing
   }
 
   function onError(evt) {
@@ -182,7 +193,7 @@
     document.addEventListener('DOMContentLoaded', armGraceTimer, { once: true });
   }
 })();
-  </script>
+</script>
   <!-- arcade:boot-guard:end -->
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="description" content="Spend a fixed budget on a real city's roads and transit and remove as much rush-hour delay as you can. Part of the Connect the Thoughts arcade.">
