@@ -36,7 +36,10 @@
      1. Hooks window.onerror / unhandledrejection for the boot window.
      2. On a fatal early error, shows a small themed overlay
         ("Something didn't load — Tap to reload") with a reload button
-        that busts the cache (?cb=<timestamp>). Styled with inline
+        that busts BOTH caches that can strand a player: the document
+        (?cb=<timestamp>) and /shared/arcade-loader.js itself, which is
+        the only shared URL that floats and the one a stale cache turns
+        into an arcade-wide dead end. Styled with inline
         `var(--token, <fallback>)` so it reads correctly whether or not
         tokens.css made it onto the page — the exact failure mode it
         guards against.
@@ -58,6 +61,11 @@
   var shown = false;
   var GRACE_MS = 1800;
 
+  // The one shared URL that FLOATS. Everything else a game loads comes from an
+  // immutable /shared/r/<id>/ directory that this file names.
+  var LOADER_URL = '/shared/arcade-loader.js';
+  var LOADER_REFETCH_MS = 1500;
+
   function reloadHref() {
     try {
       var u = new URL(location.href);
@@ -65,6 +73,50 @@
       return u.toString();
     } catch (_) {
       return location.href;
+    }
+  }
+
+  // WHY RELOADING THE DOCUMENT IS NOT ENOUGH.
+  //
+  // The arcade's worst boot failure is a STALE LOADER: a browser holding an old
+  // /shared/arcade-loader.js that names a release directory the site no longer
+  // serves. Every shared asset 404s and the page dies at the first
+  // `var { x } = window.ArcadeSomething` — which is exactly what puts this
+  // overlay on screen. Reproduced live 2026-09-21 against a pruned release.
+  //
+  // `?cb=` busts the DOCUMENT url. The stale thing is a DIFFERENT url, fetched
+  // as a subresource, and a document cache-buster never touches it — so before
+  // this, "Reload" was a button that could not fix the failure it was most
+  // likely showing for. The player's only escape was clearing site data.
+  //
+  // `fetch(LOADER_URL, { cache: 'reload' })` is the fix: it bypasses the HTTP
+  // cache on the way out AND writes the response back into it, so the reload
+  // that follows parses a fresh loader. Same-origin, same cache key as the
+  // <script src> that will ask for it next.
+  //
+  // It is bounded on every axis, deliberately — this runs when the page is
+  // already broken, so it must not be able to make things worse:
+  //   * it only ever happens on a TAP. Nothing here reloads on its own; see
+  //     shared/arcade-loader.src.js -> "WHY THE LOADER DOES NOT SELF-HEAL".
+  //   * the navigation fires exactly once, whether the fetch resolves,
+  //     rejects, or never settles.
+  //   * a timer guarantees the navigation even on a hung fetch, so the button
+  //     can never leave the player looking at an overlay that did nothing.
+  //   * no fetch (old browser, blocked by policy) degrades to the old
+  //     behaviour — reload the document — rather than throwing.
+  function reloadBustingLoader() {
+    var went = false;
+    function go() {
+      if (went) return;
+      went = true;
+      try { location.href = reloadHref(); } catch (_) { location.reload(); }
+    }
+    try {
+      if (typeof fetch !== 'function') { go(); return; }
+      setTimeout(go, LOADER_REFETCH_MS);
+      fetch(LOADER_URL, { cache: 'reload', credentials: 'same-origin' }).then(go, go);
+    } catch (_) {
+      go();
     }
   }
 
@@ -118,7 +170,8 @@
         ].join(';')
       );
       btn.addEventListener('click', function () {
-        location.href = reloadHref();
+        btn.disabled = true;
+        reloadBustingLoader();
       });
 
       overlay.appendChild(msg);
