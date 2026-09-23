@@ -69,6 +69,13 @@ function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch 
 /* ═══ 1. STATE ════════════════════════════════════════════════════ */
 var POOL = null;              /* cities/index.json — the era's city pool     */
 var CITIES = {};              /* loaded city JSON by id (incl. '_tutorial')  */
+/* Each dealDaily()/dealPractice() call takes the next token before it fetches.
+   fetchCity() is async and unordered — a mode switch mid-flight (Practice,
+   then Daily, before the Practice fetch resolves) must not let the LATE
+   resolver's resetRound() land on top of the round the player is now on.
+   The .then callback that isn't holding the current token is stale and
+   no-ops instead of overwriting city/plan/submitted. */
+var dealToken = 0;
 var mode = 'daily';
 var city = null;              /* the dealt city (frozen data + proposals)    */
 var plan = [];                /* THE PLAN IS THE STATE.                      */
@@ -572,7 +579,9 @@ function dealDaily() {
   mode = 'daily'; tutorialMode = false;
   if (modes) modes.sync('daily');
   var id = cityIdForToday();
+  var token = ++dealToken;
   return fetchCity(id).then(function (c) {
+    if (token !== dealToken) return; /* superseded by a later deal mid-flight */
     resetRound(c);
     var done = !ARCHIVE.isArchiving() && todayResult();
     if (done && done.city === id) {
@@ -598,23 +607,26 @@ function dealDaily() {
        nothing to restore needs the first paint done here. */
     if (!(saved && saved.state && resume.applyState(saved.state))) { recompute(); renderSheet(); }
     if (!plan.length) setStatus('Rush hour in ' + esc(city.meta.name) + '. ' + congestionLine());
-  }).catch(failed);
+  }).catch(function (err) { failed(err, token); });
 }
 
 function dealPractice(id) {
   mode = 'practice'; tutorialMode = false;
   if (modes) modes.sync('practice');
   id = id || POOL[Math.floor(Math.random() * POOL.length)];
+  var token = ++dealToken;
   return fetchCity(id).then(function (c) {
+    if (token !== dealToken) return; /* superseded by a later deal mid-flight */
     resetRound(c);
     resume.begin({ lane: LANE, mode: 'practice', deal: id });
     recompute();
     setStatus('Practice run. Nothing here is scored.');
     renderSheet();
-  }).catch(failed);
+  }).catch(function (err) { failed(err, token); });
 }
 
-function failed(err) {
+function failed(err, token) {
+  if (token !== undefined && token !== dealToken) return; /* a later deal already replaced this one */
   setStatus('<b>The city would not load.</b> Reload to try again.');
   throw err;
 }
@@ -655,6 +667,7 @@ function tutorialLevel() {
        very next line — so the toy city is prefetched at boot and this only
        reads it back. A promise here would script an empty board. */
     deal: function () {
+      ++dealToken; /* invalidate any dealDaily()/dealPractice() still in flight */
       tutorialMode = true; mode = 'daily'; tutStep = 0;
       var c = CITIES[TUT_CITY];
       if (!c) return;
