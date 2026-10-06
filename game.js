@@ -821,10 +821,6 @@ function boot() {
     side: 'trail', id: 'hint-btn', label: 'Hint',
     counter: { mount: $('hintCounter'), label: 'Consultant' },
     title: 'The consultant names the worst road and the cheapest fix for it. The fee comes out of your budget.',
-    /* The day-lane ledger. Gridlock is a LOCKED daily, so there is no replay
-       to launder through — but a reload is one, and this is what makes a fact
-       bought before the refresh still bought after it. */
-    sticky: { epoch: LB_EPOCH, lane: function () { return LANE; } },
     suggest: function () {
       if (!solved || !city) return null;
       /* The level is teaching one move at a time; the Consultant is not it.
@@ -887,7 +883,12 @@ function boot() {
          recap, or the scripted board out from under the coach. */
       if (submitted || recapMode || tutorialMode) { if (tutorialMode) nudge(); return; }
       plan = []; hintedLink = null; selected = null;
-      if (hint) hint.reset();
+      /* The fee stays (this is still the one counted attempt — Gridlock is a
+         LOCKED daily), and so do the facts it bought. reset() closes any open
+         chooser; restore() then puts the spend straight back. Until
+         2026-10-06 the shared day-lane floor did the putting-back; it was
+         retired arcade-wide, so Restart says it here. */
+      if (hint) { var feeSpent = hint.spent(), feeKeys = hint.charged(); hint.reset(); hint.restore(feeSpent, feeKeys); }
       recompute(); renderSheet();
       setStatus('Plan cleared. ' + money(budgetLeft()) + ' to spend.');
     },
