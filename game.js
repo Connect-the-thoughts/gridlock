@@ -844,8 +844,16 @@ function boot() {
       return order.length ? { link: order[0], fix: null } : null;
     },
     /* The suggestion is a LOCATOR: "the worst road" names a different road as
-       the plan changes. Key on the FACT — which road, under which plan. */
-    keyOf: function (s) { return 'worst:' + s.link + ':' + plan.length; },
+       the plan changes. Key on the FACT — which road, under which plan. The
+       disclosed fix (bestFixFor -> E.solve) depends on what is IN the plan,
+       not how many items it holds: two different plans of equal length must
+       not share a key, or a genuinely new hint would ride free. So serialize
+       every item field (action, site, step) in order. */
+    keyOf: function (s) {
+      return 'worst:' + s.link + ':' + plan.map(function (it) {
+        return it.action + '@' + it.site + '#' + (it.step == null ? '' : it.step);
+      }).join('|');
+    },
     onSuggest: function (s, info) {
       hintedLink = s.link;
       selected = { kind: 'link', id: s.link };
