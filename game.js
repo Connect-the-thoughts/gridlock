@@ -157,7 +157,7 @@ function paintNote() {
 /* ═══ 3. EDITING THE PLAN ════════════════════════════════════════ */
 function addAction(action, site, step) {
   if (submitted || recapMode) return;
-  if (tutorialMode && !tutorialAllows(action, site)) { nudge(); return; }
+  if (tutorialMode && !tutorialAllows(action, site)) { tutorial.nudge(); return; }
   var ok = A.eligible(city, plan, action, site);
   if (ok !== true) { setStatus(esc(ok.charAt(0).toUpperCase() + ok.slice(1)) + '.'); return; }
   var item = { action: action, site: site };
@@ -176,7 +176,7 @@ function addAction(action, site, step) {
     (gain >= 0.05 ? 'Delay removed is up ' + gain.toFixed(1) + ' points.'
      : gain <= -0.05 ? 'That made it ' + (-gain).toFixed(1) + ' points worse.'
      : 'The meter did not move.'));
-  if (tutorialMode) tutorial.satisfy();
+  if (tutorialMode && tutStep === 1 && action === 'lane' && site === TUT_LINK) tutorial.satisfy();
   renderSheet();
 }
 
@@ -212,6 +212,7 @@ function planWithout(src, idx) {
 
 function removeAction(idx) {
   if (submitted || recapMode) return;
+  if (tutorialMode) { tutorial.nudge(); return; }
   var it = plan[idx];
   if (!it) return;
   plan = planWithout(plan, idx);
@@ -361,7 +362,7 @@ function isDayDone(dateKey) {
 function submit() {
   if (!solved || submitted || recapMode) return;
   if (tutorialMode) {
-    if (!tutorialAllows('submit')) { nudge(); return; }
+    if (!tutorialAllows('submit')) { tutorial.nudge(); return; }
     /* The tutorial's last step IS the submit. Satisfying it ends the level,
        which hands the player straight to today's real city — a results card
        for a four-road toy town would be noise, not a finish. */
@@ -551,8 +552,9 @@ function onTap(x, y) {
     var wl = solved.world.city.links[hit.id];
     hit = (wl && wl.proposal != null) ? { kind: 'proposal', id: wl.proposal } : null;
   }
-  if (tutorialMode && tutStep === 0) {
-    if (!hit || hit.kind !== 'link' || hit.id !== TUT_LINK) { nudge(); return; }
+  if (tutorialMode && tutStep !== 0) { tutorial.nudge(); return; }
+  if (tutorialMode) {
+    if (!hit || hit.kind !== 'link' || hit.id !== TUT_LINK) { tutorial.nudge(); return; }
     selected = hit; paint(); openSheet('site'); tutorial.satisfy();
     return;
   }
@@ -642,8 +644,8 @@ var TUT_STEPS = [
     wait: 'action', nudge: 'Tap the red road across the top of the map.' },
   { say: 'Now buy it a lane. Watch the delay meter above the map.',
     wait: 'action', nudge: 'Pick Add a lane in the drawer.',
-    highlight: function () { return document.querySelector('#sheetBody .gl-action:not(.is-disabled)'); } },
-  { say: 'Every fix moves the jam somewhere else. Submit when you are happy with the plan.',
+    highlight: '#sheetBody .gl-action[data-action="lane"][data-site="' + TUT_LINK + '"]' },
+  { say: 'Submit locks the plan in. Real cities are ranked by the percent of rush-hour delay you remove.',
     wait: 'action', nudge: 'Press Submit plan under the map.',
     onEnter: function () { if (sheet) sheet.close(); },
     highlight: '#submitBtn' },
@@ -654,15 +656,12 @@ var TUT_STEPS = [
 function tutorialAllows(action, site) {
   if (tutStep === 0) return false;
   if (tutStep === 1) return action === 'lane' && site === TUT_LINK;
-  return action === 'submit' || action === 'lane';
-}
-function nudge() {
-  var n = tutorial && tutorial.nudge();
-  if (n) setStatus(esc(n));
+  return action === 'submit';
 }
 
 function tutorialLevel() {
   return {
+    version: 2,
     /* CALLED SYNCHRONOUSLY by arcade-tutorial.js, which runs step 0 on the
        very next line — so the toy city is prefetched at boot and this only
        reads it back. A promise here would script an empty board. */
@@ -670,7 +669,13 @@ function tutorialLevel() {
       ++dealToken; /* invalidate any dealDaily()/dealPractice() still in flight */
       tutorialMode = true; mode = 'daily'; tutStep = 0;
       var c = CITIES[TUT_CITY];
-      if (!c) return;
+      if (!c) {
+        /* No toy city, no level: scripting an empty board would teach nothing.
+           End the level (onEnd/onDone deal today's daily) once step 0 has run. */
+        tutorialMode = false;
+        setTimeout(function () { tutorial.skip(); }, 0);
+        return;
+      }
       resetRound(c);
       paint();
       setStatus('');
@@ -682,7 +687,7 @@ function tutorialLevel() {
         onEnter: function () { tutStep = i; if (s.onEnter) s.onEnter(); },
       };
     }),
-    onEnd: function () { tutorialMode = false; tutStep = 0; if (sheet) sheet.close(); },
+    onEnd: function () { tutorialMode = false; tutStep = 0; selected = null; if (sheet) sheet.close(); },
     onDone: function () {
       if (window.ArcadeResults.dismissResults) window.ArcadeResults.dismissResults();
       dealDaily();
@@ -870,12 +875,11 @@ function boot() {
       openSheet('site');
     },
     onNothing: function () {
-      if (tutorialMode) { nudge(); return; }
       setStatus(city && A.consultantFee(city) > budgetLeft()
         ? 'The consultant costs ' + money(A.consultantFee(city)) + ' and you cannot afford one.'
         : 'Nothing left to point at.');
     },
-    canHint: function () { return !!city && !submitted && !recapMode; },
+    canHint: function () { return !!city && !submitted && !recapMode && !tutorialMode; },
     isFinished: function () { return submitted || recapMode; },
     recap: recapResults,
   });
@@ -889,7 +893,7 @@ function boot() {
          the press entirely still early-returns inside its own onRestart".
          Without this, Restart erases a submitted plan out from under its own
          recap, or the scripted board out from under the coach. */
-      if (submitted || recapMode || tutorialMode) { if (tutorialMode) nudge(); return; }
+      if (submitted || recapMode || tutorialMode) { if (tutorialMode) tutorial.nudge(); return; }
       plan = []; hintedLink = null; selected = null;
       /* The fee stays (this is still the one counted attempt — Gridlock is a
          LOCKED daily), and so do the facts it bought. reset() closes any open
@@ -903,20 +907,23 @@ function boot() {
     isActive: function () { return !!city && !submitted && !recapMode && !tutorialMode; },
   });
 
-  sheet = window.ArcadeSheets.createSheet({ sheet: $('actionSheet') });
+  sheet = window.ArcadeSheets.createSheet({
+    sheet: $('actionSheet'),
+    /* The lane control lives in the drawer, so a backdrop tap on the lane step
+       would strand the player with nothing to press: put it back. */
+    onClose: function () {
+      if (tutorialMode && tutStep === 1) { sheet.open(); tutorial.nudge(); }
+    },
+  });
 
   modes = window.ArcadeMode.createMode({
     container: $('mode-row'), current: mode,
     onDaily: function () {
-      /* While a level is running the coach owns the board — refuse the switch
-         softly and snap the optimistically-lit pill back. */
-      if (tutorialMode) { nudge(); modes.sync('daily'); return; }
       if (ARCHIVE.isArchiving()) ARCHIVE.exitArchive();
       window.ArcadeResults.dismissResults && window.ArcadeResults.dismissResults();
       dealDaily();
     },
     onPractice: function () {
-      if (tutorialMode) { nudge(); modes.sync('daily'); return; }
       window.ArcadeResults.dismissResults && window.ArcadeResults.dismissResults();
       dealPractice();
     },
@@ -990,7 +997,10 @@ function boot() {
      is the door to every move that has no map referent — the citywide fixes,
      and taking an action back — so it is a play ACTION and lives in
      `.play-actions` under the board, beside Submit. */
-  $('planBtn').addEventListener('click', function () { openSheet('plan'); });
+  $('planBtn').addEventListener('click', function () {
+    if (tutorialMode) { tutorial.nudge(); return; }
+    openSheet('plan');
+  });
   $('submitBtn').addEventListener('click', submit);
 
   $('sheetBody').addEventListener('click', function (e) {
@@ -1003,7 +1013,10 @@ function boot() {
     addAction(b.dataset.action, site, b.dataset.step ? +b.dataset.step : undefined);
   });
   Array.prototype.forEach.call(document.querySelectorAll('.gl-tab'), function (b) {
-    b.addEventListener('click', function () { setPane(b.dataset.pane); });
+    b.addEventListener('click', function () {
+      if (tutorialMode) { tutorial.nudge(); return; }
+      setPane(b.dataset.pane);
+    });
   });
 
   /* The help modal is the GAME's: arcade-topbar vends the button and
@@ -1029,10 +1042,10 @@ function boot() {
      even asked. */
   Promise.all([
     fetch('cities/index.json').then(function (r) { return r.json(); }),
-    fetchCity(TUT_CITY),
+    fetchCity(TUT_CITY).catch(function () { return null; }),
   ]).then(function (a) {
     POOL = a[0];
-    if (tutorial.pendingLevel()) tutorial.beginLevel();
+    if (CITIES[TUT_CITY] && tutorial.pendingLevel()) tutorial.beginLevel();
     else dealDaily();
   }).catch(failed);
 }

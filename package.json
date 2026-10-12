@@ -7,6 +7,7 @@
     "test": "node --test",
     "check:cities": "node scripts/check-cities.mjs",
     "balance": "node scripts/balance-report.mjs",
-    "check": "npm test && npm run check:cities"
+    "check:tutorial": "node scripts/check-tutorial-board.mjs",
+    "check": "npm test && npm run check:cities && npm run check:tutorial"
   }
 }
